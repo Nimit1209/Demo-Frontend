@@ -1,0 +1,79 @@
+/* Sidebar.css */
+.sidebar {
+  width: 220px;
+  background-color: #252525;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #333;
+}
+
+.sidebar h2 {
+  font-size: 1.2rem;
+  font-weight: 500;
+  margin-bottom: 16px;
+  color: #fff;
+}
+
+.upload-button {
+  background-color: #0066cc;
+  color: white;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  text-align: center;
+  transition: background-color 0.2s;
+}
+
+.upload-button:hover {
+  background-color: #0055aa;
+}
+
+.video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.video-item {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  background-color: #333;
+  border: 1px solid #444;
+  transition: all 0.2s;
+}
+
+.video-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.3);
+  border-color: #555;
+}
+
+.video-item.selected {
+  border: 2px solid #0066cc;
+}
+
+.video-thumbnail, .video-thumbnail-placeholder {
+  width: 100%;
+  height: 80px;
+  background-color: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #777;
+}
+
+.video-item-title {
+  padding: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(0, 0, 0, 0.3);
+}
