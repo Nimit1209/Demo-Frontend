@@ -1,10 +1,10 @@
-import React from 'react';
 import axios from 'axios';
 
 const ImageSegmentHandler = ({
   projectId,
   sessionId,
   videoLayers,
+  audioLayers,
   setVideoLayers,
   saveHistory,
   autoSave,
@@ -14,9 +14,7 @@ const ImageSegmentHandler = ({
 }) => {
   const generateImageThumbnail = async (imagePath, isElement = false) => {
     const filename = imagePath.split('/').pop();
-    const fullImagePath = isElement
-      ? `${API_BASE_URL}/elements/${encodeURIComponent(filename)}`
-      : `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(filename)}`;
+    const fullImagePath = `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(filename)}`;
     console.log(`Generating thumbnail for: ${fullImagePath}`);
     return new Promise((resolve) => {
       const img = new Image();
@@ -64,6 +62,7 @@ const ImageSegmentHandler = ({
     }
     try {
       const token = localStorage.getItem('token');
+      console.log('Adding image to timeline:', { imageFileName, layer, timelineStartTime, timelineEndTime, isElement });
       const response = await axios.post(
         `${API_BASE_URL}/projects/${projectId}/add-project-image-to-timeline`,
         {
@@ -82,16 +81,16 @@ const ImageSegmentHandler = ({
         }
       );
       const segment = response.data;
-      console.log('addImageToTimeline response:', segment);
+      console.log('addImageToTimeline response:', JSON.stringify(segment, null, 2));
 
-      const thumbnail = await generateImageThumbnail(imageFileName, isElement);
+      // Use the backend's element field to determine isElement
+      const effectiveIsElement = segment.element !== undefined ? segment.element : isElement;
+      const thumbnail = await generateImageThumbnail(imageFileName, effectiveIsElement);
       const newSegment = {
         id: segment.id,
         type: 'image',
         fileName: imageFileName,
-        filePath: isElement
-          ? `${API_BASE_URL}/elements/${encodeURIComponent(imageFileName)}`
-          : `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(imageFileName)}`,
+        filePath: `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(imageFileName)}`,
         thumbnail,
         startTime: timelineStartTime,
         duration: timelineEndTime - timelineStartTime,
@@ -105,6 +104,7 @@ const ImageSegmentHandler = ({
         effectiveWidth: segment.effectiveWidth,
         effectiveHeight: segment.effectiveHeight,
         maintainAspectRatio: segment.maintainAspectRatio,
+        isElement: effectiveIsElement, // Store isElement explicitly
       };
       setVideoLayers((prev) => {
         const newLayers = [...prev];
@@ -112,8 +112,9 @@ const ImageSegmentHandler = ({
         newLayers[layer].push(newSegment);
         return newLayers;
       });
-      saveHistory([...videoLayers, newSegment], []);
-      autoSave([...videoLayers, newSegment], []);
+// Use the current videoLayers and audioLayers after state update
+      saveHistory(videoLayers, audioLayers);
+      autoSave(videoLayers, audioLayers);
       return newSegment;
     } catch (error) {
       console.error('Error in addImageToTimeline:', {
@@ -145,7 +146,11 @@ const ImageSegmentHandler = ({
         return;
       }
       const duration = newDuration || item.duration;
-      const isElement = updatedSettings.isElement || item.filePath.includes('/elements/');
+      const isElement = updatedSettings.isElement !== undefined
+        ? updatedSettings.isElement
+        : item.isElement !== undefined
+        ? item.isElement
+        : item.filePath.includes('elements/'); // Fallback to filePath check
       const requestBody = {
         segmentId,
         timelineStartTime: newStartTime,
@@ -222,27 +227,22 @@ const ImageSegmentHandler = ({
           while (newVideoLayers.length <= targetLayer) newVideoLayers.push([]);
           const targetLayerItems = newVideoLayers[targetLayer];
 
-          let hasOverlap = true;
-          while (hasOverlap) {
-            hasOverlap = targetLayerItems.some((existingItem) => {
+          // Check for overlaps and adjust start time
+          while (true) {
+            let hasOverlap = false;
+            let overlappingItem = null;
+            for (const existingItem of targetLayerItems) {
               const existingStart = existingItem.startTime;
               const existingEnd = existingStart + existingItem.duration;
               const newEnd = adjustedStartTime + duration;
-              return adjustedStartTime < existingEnd && newEnd > existingStart;
-            });
-            if (hasOverlap) {
-              const overlappingItem = targetLayerItems.find((existingItem) => {
-                const existingStart = existingItem.startTime;
-                const existingEnd = existingItem.startTime + existingItem.duration;
-                const newEnd = adjustedStartTime + duration;
-                return adjustedStartTime < existingEnd && newEnd > existingStart;
-              });
-              if (overlappingItem) {
-                adjustedStartTime = overlappingItem.startTime + overlappingItem.duration;
-              } else {
+              if (adjustedStartTime < existingEnd && newEnd > existingStart) {
+                hasOverlap = true;
+                overlappingItem = existingItem;
                 break;
               }
             }
+            if (!hasOverlap) break;
+            adjustedStartTime = overlappingItem.startTime + overlappingItem.duration;
           }
 
           const imageFileName = item.fileName;
@@ -259,6 +259,9 @@ const ImageSegmentHandler = ({
             adjustedStartTime + duration,
             isElementDrop
           );
+          // Use the updated videoLayers after addImageToTimeline
+                    saveHistory(videoLayers, audioLayers);
+                    autoSave(videoLayers, audioLayers);
         }
       }
       return;
@@ -292,13 +295,14 @@ const ImageSegmentHandler = ({
     }
 
     newVideoLayers[dragLayer] = newVideoLayers[dragLayer].filter((v) => v.id !== draggingItem.id);
-    const isElementSegment = draggingItem.filePath.includes('/elements/');
+    const isElementSegment = draggingItem.isElement !== undefined ? draggingItem.isElement : draggingItem.filePath.includes('elements/');
     const updatedItem = { ...draggingItem, startTime: adjustedStartTime, layer: targetLayer };
     newVideoLayers[targetLayer].push(updatedItem);
 
     setVideoLayers(newVideoLayers);
-    saveHistory(newVideoLayers, []);
-    autoSave(newVideoLayers, []);
+// Use the current videoLayers and audioLayers after state update
+      saveHistory(videoLayers, audioLayers);
+      autoSave(videoLayers, audioLayers);
 
     await updateImageSegment(draggingItem.id, adjustedStartTime, targetLayer, draggingItem.duration, {
       positionX: draggingItem.positionX,
@@ -315,37 +319,67 @@ const ImageSegmentHandler = ({
   };
 
   const handleImageSplit = async (item, clickTime, layerIndex) => {
+    console.log('handleImageSplit item:', JSON.stringify(item, null, 2));
+    console.log('videoLayers state:', JSON.stringify(videoLayers, null, 2));
+
     const splitTime = clickTime - item.startTime;
-    if (splitTime <= 0.1 || splitTime >= item.duration - 0.1) return;
+    if (splitTime <= 0.1 || splitTime >= item.duration - 0.1) {
+      console.warn('Split time is too close to segment boundaries:', { splitTime, duration: item.duration });
+      return;
+    }
 
     const firstPartDuration = splitTime;
     const secondPartDuration = item.duration - splitTime;
+
+    // Determine isElement: prefer item.isElement, fallback to filePath check
+    const isElement = item.isElement !== undefined
+      ? item.isElement
+      : item.filePath.includes('elements/');
+    console.log('Splitting item:', {
+      imageFileName: item.fileName,
+      isElement,
+      startTime: item.startTime,
+      splitTime,
+      firstPartDuration,
+      secondPartDuration,
+      itemId: item.id,
+    });
+
+    // Update the first part in the frontend state
     let newVideoLayers = [...videoLayers];
     const layer = newVideoLayers[layerIndex];
     const itemIndex = layer.findIndex((i) => i.id === item.id);
 
-    const isElement = item.filePath.includes('/elements/');
+    if (itemIndex === -1) {
+      console.error('Item not found in layer:', item.id);
+      return;
+    }
+
     const firstPart = {
       ...item,
       duration: firstPartDuration,
       timelineEndTime: item.startTime + firstPartDuration,
+      isElement, // Ensure isElement is set
     };
     layer[itemIndex] = firstPart;
 
+    // Create a temporary second part
     const secondPart = {
       ...item,
-      id: `${item.id}-split-${Date.now()}`,
+      id: `${item.id}-split-${Date.now()}`, // Temporary ID
       startTime: item.startTime + splitTime,
       duration: secondPartDuration,
       timelineStartTime: item.startTime + splitTime,
       timelineEndTime: item.startTime + item.duration,
+      isElement, // Explicitly set isElement
     };
     layer.push(secondPart);
 
     newVideoLayers[layerIndex] = layer;
     setVideoLayers(newVideoLayers);
-    saveHistory(newVideoLayers, []);
+    saveHistory(newVideoLayers, audioLayers); // Use audioLayers
 
+    // Update the first part in the backend
     try {
       await updateImageSegment(item.id, item.startTime, layerIndex, firstPartDuration, {
         isElement,
@@ -359,31 +393,43 @@ const ImageSegmentHandler = ({
         effectiveHeight: item.effectiveHeight,
         maintainAspectRatio: item.maintainAspectRatio,
       });
+      console.log(`Successfully updated first part: ${item.id}`);
     } catch (error) {
       console.error('Error updating first part of split:', error.response?.data || error.message);
       await loadProjectTimeline();
       return;
     }
 
+    // Add the second part to the timeline
     const imageFileName = item.fileName;
-    console.log('Splitting item:', { imageFileName, isElement, startTime: secondPart.startTime, duration: secondPartDuration });
-
     try {
       const newSegment = await addImageToTimeline(
         imageFileName,
         layerIndex,
         secondPart.startTime,
         secondPart.startTime + secondPartDuration,
-        isElement
+        isElement // Pass isElement correctly
       );
       console.log('Successfully added second part to timeline:', newSegment);
 
+      // Update the frontend state with the new segment ID from the backend
       if (newSegment && newSegment.id !== secondPart.id) {
         newVideoLayers = [...newVideoLayers];
         const updatedLayer = newVideoLayers[layerIndex];
         const secondPartIndex = updatedLayer.findIndex((i) => i.id === secondPart.id);
         if (secondPartIndex !== -1) {
-          updatedLayer[secondPartIndex] = { ...updatedLayer[secondPartIndex], id: newSegment.id };
+          updatedLayer[secondPartIndex] = {
+            ...updatedLayer[secondPartIndex],
+            id: newSegment.id, // Update with backend-assigned ID
+            filePath: newSegment.filePath,
+            thumbnail: newSegment.thumbnail,
+            width: newSegment.width,
+            height: newSegment.height,
+            effectiveWidth: newSegment.effectiveWidth,
+            effectiveHeight: newSegment.effectiveHeight,
+            maintainAspectRatio: newSegment.maintainAspectRatio,
+            isElement: newSegment.isElement !== undefined ? newSegment.isElement : isElement,
+          };
           newVideoLayers[layerIndex] = updatedLayer;
           setVideoLayers(newVideoLayers);
           saveHistory(newVideoLayers, []);

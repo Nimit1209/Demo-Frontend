@@ -4,6 +4,7 @@ import axios from 'axios';
 import '../CSS/ProjectEditor.css';
 import TimelineComponent from './TimelineComponent.js';
 import VideoPreview from './VideoPreview';
+import { debounce } from 'lodash'; // Ensure lodash is installed: npm install lodash
 
 const API_BASE_URL = 'http://localhost:8080';
 
@@ -62,6 +63,207 @@ const ProjectEditor = () => {
   const [selectedTransition, setSelectedTransition] = useState(null); // NEW: State for selected transition
   const [projectFps, setProjectFps] = useState(25); // Default to 25 as per backend
   const [elements, setElements] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // Calculate canUndo and canRedo based on history state
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  // Capture the entire project state for history
+  const getProjectState = () => ({
+    videoLayers,
+    audioLayers,
+    transitions,
+    keyframes,
+    filterParams,
+    appliedFilters,
+    textSettings,
+    selectedSegment,
+  });
+
+  const saveHistory = () => {
+    console.log('Saving history...');
+    const newState = getProjectState();
+    const newHistory = [...history.slice(0, historyIndex + 1), newState];
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+    console.log('History updated:', newHistory, 'historyIndex:', newHistory.length - 1);
+  };
+
+  const autoSaveUndoRedo = async (projectState) => {
+    if (!projectId || !sessionId) {
+      console.warn('Cannot auto-save undo/redo: Missing projectId or sessionId');
+      return;
+    }
+    try {
+      const token = localStorage.getItem('token');
+
+      // Extract the layers and transitions from the project state
+      const videoLayersToSave = projectState.videoLayers;
+      const audioLayersToSave = projectState.audioLayers;
+      const transitionsToSave = projectState.transitions;
+
+      // Validate the layers to prevent errors
+      if (!Array.isArray(videoLayersToSave) || !Array.isArray(audioLayersToSave)) {
+        throw new Error('Invalid project state: videoLayers or audioLayers is not an array');
+      }
+
+      // Prepare timeline state
+      const segments = [];
+      videoLayersToSave.forEach((layer, layerIndex) => {
+        if (!Array.isArray(layer)) {
+          console.warn(`Skipping invalid video layer at index ${layerIndex}:`, layer);
+          return;
+        }
+        layer.forEach((item) => {
+          if (item.type === 'video') {
+            segments.push({
+              id: item.id,
+              type: 'video',
+              sourceVideoPath: item.filePath,
+              layer: item.layer,
+              timelineStartTime: item.startTime,
+              timelineEndTime: item.startTime + item.duration,
+              startTime: item.startTimeWithinVideo || 0,
+              endTime: item.endTimeWithinVideo || item.duration,
+              positionX: item.positionX,
+              positionY: item.positionY,
+              scale: item.scale,
+              opacity: item.opacity,
+              filters: item.filters || [],
+              keyframes: item.keyframes || {},
+            });
+          } else if (item.type === 'image') {
+            segments.push({
+              id: item.id,
+              type: 'image',
+              imagePath: item.fileName,
+              layer: item.layer,
+              timelineStartTime: item.startTime,
+              timelineEndTime: item.startTime + item.duration,
+              positionX: item.positionX,
+              positionY: item.positionY,
+              scale: item.scale,
+              opacity: item.opacity,
+              filters: item.filters || [],
+              keyframes: item.keyframes || {},
+            });
+          } else if (item.type === 'text') {
+            segments.push({
+              id: item.id,
+              type: 'text',
+              text: item.text,
+              layer: item.layer,
+              timelineStartTime: item.startTime,
+              timelineEndTime: item.startTime + item.duration,
+              fontFamily: item.fontFamily,
+              fontSize: item.fontSize,
+              fontColor: item.fontColor,
+              backgroundColor: item.backgroundColor,
+              positionX: item.positionX,
+              positionY: item.positionY,
+              opacity: item.opacity,
+              keyframes: item.keyframes || {},
+            });
+          }
+        });
+      });
+
+      audioLayersToSave.forEach((layer, layerIndex) => {
+        if (!Array.isArray(layer)) {
+          console.warn(`Skipping invalid audio layer at index ${layerIndex}:`, layer);
+          return;
+        }
+        layer.forEach((item) => {
+          segments.push({
+            id: item.id,
+            type: 'audio',
+            audioPath: item.fileName,
+            layer: item.layer,
+            timelineStartTime: item.startTime,
+            timelineEndTime: item.startTime + item.duration,
+            startTime: item.startTimeWithinAudio || 0,
+            endTime: item.endTimeWithinAudio || item.duration,
+            volume: item.volume,
+            keyframes: item.keyframes || {},
+          });
+        });
+      });
+
+      // Construct the timelineState object
+      const timelineState = {
+        segments,
+        textSegments: segments.filter((s) => s.type === 'text'),
+        imageSegments: segments.filter((s) => s.type === 'image'),
+        audioSegments: segments.filter((s) => s.type === 'audio'),
+      };
+
+      // Include transitions in the save request
+      const payload = {
+        timelineState,
+        transitions: transitionsToSave || [], // Ensure transitions is an array
+      };
+
+      // Send save request
+      await axios.post(
+        `${API_BASE_URL}/projects/${projectId}/save`,
+        payload,
+        {
+          params: { sessionId },
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      console.log('Undo/Redo state auto-saved successfully with payload:', payload);
+    } catch (error) {
+      console.error('Error during undo/redo auto-save:', error);
+      throw error; // Re-throw the error to be handled by the caller
+    }
+  };
+
+  const handleUndo = async () => {
+    if (historyIndex <= 0) return;
+    const newIndex = historyIndex - 1;
+    const previousState = history[newIndex];
+    setVideoLayers(previousState.videoLayers);
+    setAudioLayers(previousState.audioLayers);
+    setTransitions(previousState.transitions);
+    setKeyframes(previousState.keyframes);
+    setFilterParams(previousState.filterParams);
+    setAppliedFilters(previousState.appliedFilters);
+    setTextSettings(previousState.textSettings);
+    setSelectedSegment(previousState.selectedSegment);
+    setHistoryIndex(newIndex);
+    try {
+      await autoSaveUndoRedo(previousState); // Pass the entire previous state
+      console.log('Undo state saved successfully');
+    } catch (error) {
+      console.error('Failed to save undo state:', error);
+      alert('Failed to save changes after undo. Please try again.');
+    }
+  };
+
+  const handleRedo = async () => {
+    if (historyIndex >= history.length - 1) return;
+    const newIndex = historyIndex + 1;
+    const nextState = history[newIndex];
+    setVideoLayers(nextState.videoLayers);
+    setAudioLayers(nextState.audioLayers);
+    setTransitions(nextState.transitions);
+    setKeyframes(nextState.keyframes);
+    setFilterParams(nextState.filterParams);
+    setAppliedFilters(nextState.appliedFilters);
+    setTextSettings(nextState.textSettings);
+    setSelectedSegment(nextState.selectedSegment);
+    setHistoryIndex(newIndex);
+    try {
+      await autoSaveUndoRedo(nextState); // Pass the entire next state
+      console.log('Redo state saved successfully');
+    } catch (error) {
+      console.error('Failed to save redo state:', error);
+      alert('Failed to save changes after redo. Please try again.');
+    }
+  };
 
   // Add this function near the top of ProjectEditor.js, after state declarations
   const autoSaveProject = async (updatedVideoLayers = videoLayers, updatedAudioLayers = audioLayers) => {
@@ -486,6 +688,7 @@ const ProjectEditor = () => {
       });
       setIsTextToolOpen(true);
       preloadMedia(); // Preload after adding text
+      saveHistory(); // Save history after adding text
     } catch (error) {
       console.error('Error adding text to timeline:', error);
     }
@@ -698,6 +901,7 @@ const ProjectEditor = () => {
       const newTransition = response.data;
       setTransitions((prev) => [...prev, newTransition]);
       await fetchTransitions();
+      saveHistory();
     } catch (error) {
       console.error('Error adding transition:', error.response?.data || error.message);
       alert('Failed to add transition. Please try again.');
@@ -1240,7 +1444,7 @@ const ProjectEditor = () => {
       e.dataTransfer.effectAllowed = 'copyMove';
     };
 
-  const handleVideoClick = async (video, isDragEvent = false) => {
+  const handleVideoClick = debounce(async (video, isDragEvent = false) => {
     if (isDragEvent) return;
     setSelectedVideo(video);
     if (!sessionId || !projectId) return;
@@ -1264,11 +1468,28 @@ const ProjectEditor = () => {
           if (segmentEndTime > endTime) endTime = segmentEndTime;
         });
       }
-      await addVideoToTimeline(video.filePath || video.filename, 0, endTime, null);
+
+      // Add video to timeline and get the new segment
+      const newSegment = await addVideoToTimeline(video.filePath || video.filename, 0, endTime, null);
+
+      // Update videoLayers, ensuring no duplicates
+      setVideoLayers((prevLayers) => {
+        const newLayers = [...prevLayers];
+        // Check if a segment with the same id already exists in layer 0
+        const exists = newLayers[0].some((segment) => segment.id === newSegment.id);
+        if (!exists) {
+          newLayers[0] = [...newLayers[0], newSegment];
+        } else {
+          console.warn(`Segment with id ${newSegment.id} already exists in layer 0`);
+        }
+        return newLayers;
+      });
+
+      // Auto-save is handled in addVideoToTimeline
     } catch (error) {
       console.error('Error adding video to timeline:', error);
     }
-  };
+  }, 300);
 
   const addVideoToTimeline = async (videoPath, layer, timelineStartTime, timelineEndTime, startTimeWithinVideo, endTimeWithinVideo) => {
     try {
@@ -1285,39 +1506,97 @@ const ProjectEditor = () => {
         },
         { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
       );
-      const segment = response.data;
+      const { videoSegmentId, audioSegmentId } = response.data;
+
+      // Fetch the newly created video segment to ensure consistency
+      const segmentResponse = await axios.get(
+        `${API_BASE_URL}/projects/${projectId}/get-segment`,
+        {
+          params: { sessionId, segmentId: videoSegmentId },
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const videoSegment = segmentResponse.data.videoSegment;
+      if (!videoSegment) {
+        throw new Error(`Newly created video segment ${videoSegmentId} not found`);
+      }
+
       const video = videos.find((v) => (v.filePath || v.filename) === videoPath);
-      if (video && segment) {
-        const newSegment = {
-          id: segment.id || `${videoPath}-${Date.now()}`,
-          type: 'video',
-          startTime: timelineStartTime || 0,
-          duration: (timelineEndTime || segment.timelineEndTime) - (timelineStartTime || 0),
-          filePath: videoPath,
-          layer: layer || 0,
-          positionX: segment.positionX || 0,
-          positionY: segment.positionY || 0,
-          scale: segment.scale || 1,
-          thumbnail: video.thumbnail,
-          filters: segment.filters || [],
+      if (!video) {
+        throw new Error(`Video with path ${videoPath} not found in videos list`);
+      }
+
+      // Construct the new segment with backend data
+      const newSegment = {
+        id: videoSegment.id,
+        type: 'video',
+        startTime: videoSegment.timelineStartTime,
+        duration: videoSegment.timelineEndTime - videoSegment.timelineStartTime,
+        filePath: videoSegment.filename || videoPath,
+        layer: layer || 0,
+        positionX: videoSegment.positionX || 0,
+        positionY: videoSegment.positionY || 0,
+        scale: videoSegment.scale || 1,
+        startTimeWithinVideo: videoSegment.startTime || 0,
+        endTimeWithinVideo: videoSegment.endTime || (videoSegment.timelineEndTime - videoSegment.timelineStartTime),
+        thumbnail: video.thumbnail,
+        filters: videoSegment.filters || [],
+        audioSegmentId: audioSegmentId || null,
+      };
+
+      let updatedVideoLayers = videoLayers;
+      setVideoLayers((prevLayers) => {
+        const newLayers = [...prevLayers];
+        while (newLayers.length <= layer) newLayers.push([]);
+        newLayers[layer] = [...newLayers[layer], newSegment];
+        updatedVideoLayers = newLayers;
+        return newLayers;
+      });
+
+      // Update audioLayers if an audio segment was created
+      let updatedAudioLayers = audioLayers;
+      if (audioSegmentId && segmentResponse.data.audioSegment) {
+        const audioSegment = segmentResponse.data.audioSegment;
+        const audioLayerIndex = Math.abs(audioSegment.layer) - 1;
+        const newAudioSegment = {
+          id: audioSegment.id,
+          type: 'audio',
+          fileName: audioSegment.audioFileName || audioSegment.audioPath.split('/').pop(),
+          startTime: audioSegment.timelineStartTime,
+          duration: audioSegment.timelineEndTime - audioSegment.timelineStartTime,
+          timelineStartTime: audioSegment.timelineStartTime,
+          timelineEndTime: audioSegment.timelineEndTime,
+          startTimeWithinAudio: audioSegment.startTime || 0,
+          endTimeWithinAudio: audioSegment.endTime || (audioSegment.timelineEndTime - audioSegment.timelineStartTime),
+          layer: audioSegment.layer,
+          displayName: audioSegment.audioPath
+            ? audioSegment.audioPath.split('/').pop()
+            : audioSegment.audioFileName,
+          waveformImage: '/images/audio.jpeg',
+          volume: audioSegment.volume || 1.0,
         };
-        let updatedVideoLayers = videoLayers;
-        setVideoLayers((prevLayers) => {
+
+        setAudioLayers((prevLayers) => {
           const newLayers = [...prevLayers];
-          while (newLayers.length <= layer) newLayers.push([]);
-          newLayers[layer] = [...newLayers[layer], newSegment];
-          updatedVideoLayers = newLayers; // Capture updated layers for auto-save
+          while (newLayers.length <= audioLayerIndex) newLayers.push([]);
+          newLayers[audioLayerIndex] = [...newLayers[audioLayerIndex], newAudioSegment];
+          updatedAudioLayers = newLayers;
           return newLayers;
         });
-        setTotalDuration((prev) => Math.max(prev, newSegment.startTime + newSegment.duration));
-        preloadMedia(); // Preload after adding video
-
-        // Auto-save the project with updated layers
-        if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
-        updateTimeoutRef.current = setTimeout(() => {
-          autoSaveProject(updatedVideoLayers, audioLayers);
-        }, 1000); // Debounce for 1 second
       }
+
+      setTotalDuration((prev) => Math.max(prev, newSegment.startTime + newSegment.duration));
+      preloadMedia(); // Preload after adding video
+
+      // Auto-save the project with updated layers
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        autoSaveProject(updatedVideoLayers, updatedAudioLayers);
+      }, 1000); // Debounce for 1 second
+
+      saveHistory(); // Save history after adding video
+
+      return newSegment; // Return the new segment for use in handleVideoDrop
     } catch (error) {
       console.error('Error adding video to timeline:', error);
       throw error;
@@ -2186,6 +2465,7 @@ const ProjectEditor = () => {
        filterUpdateTimeoutRef.current = setTimeout(() => {
          autoSaveProject(updatedVideoLayers, audioLayers);
        }, 1000); // Debounce for 1 second
+       saveHistory();
      } catch (error) {
        console.error('Error updating filters:', error);
      }
@@ -2940,6 +3220,11 @@ const ProjectEditor = () => {
                 isPlaying={isPlaying}
                 setIsPlaying={setIsPlaying}
                 fps={projectFps}
+                saveHistory={saveHistory}
+                handleUndo={handleUndo}
+                handleRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
               />
             ) : (
               <div className="loading-message">Loading timeline...</div>
