@@ -216,10 +216,21 @@ const TimelineComponent = ({
         headers: { Authorization: `Bearer ${token}` },
       });
       const project = response.data;
+      console.log('Backend timelineState:', JSON.stringify(project.timelineState, null, 2));
+
       if (project && project.timelineState) {
         const timelineState = typeof project.timelineState === 'string' ? JSON.parse(project.timelineState) : project.timelineState;
         const newVideoLayers = [[], [], []];
         const newAudioLayers = [[], [], []];
+
+        // Map filters to segments
+        const filterMap = {};
+        (timelineState.filters || []).forEach((filter) => {
+          if (!filterMap[filter.segmentId]) {
+            filterMap[filter.segmentId] = [];
+          }
+          filterMap[filter.segmentId].push(filter);
+        });
 
         if (timelineState.segments && timelineState.segments.length > 0) {
           for (const segment of timelineState.segments) {
@@ -236,6 +247,8 @@ const TimelineComponent = ({
               });
               if (video) {
                 const thumbnail = await generateVideoThumbnail(normalizedVideoPath);
+                const filters = filterMap[segment.id] || [];
+                console.log(`Video segment ID ${segment.id}: filters=`, JSON.stringify(filters, null, 2));
                 newVideoLayers[layerIndex].push({
                   ...video,
                   type: 'video',
@@ -244,12 +257,14 @@ const TimelineComponent = ({
                   duration: segment.timelineEndTime - segment.timelineStartTime,
                   layer: layerIndex,
                   filePath: normalizedVideoPath,
-                  positionX: segment.positionX || 0,
-                  positionY: segment.positionY || 0,
-                  scale: segment.scale || 1,
+                  positionX: segment.positionX ?? 0,
+                  positionY: segment.positionY ?? 0,
+                  scale: segment.scale ?? 1,
                   startTimeWithinVideo: segment.startTime,
                   endTimeWithinVideo: segment.endTime,
                   thumbnail,
+                  keyframes: segment.keyframes || {},
+                  filters,
                 });
               }
             }
@@ -264,6 +279,8 @@ const TimelineComponent = ({
             const filename = imageSegment.imagePath.split('/').pop();
             const filePath = `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(filename)}`;
             const thumbnail = await generateImageThumbnail(imageSegment.imagePath, imageSegment.element);
+            const filters = filterMap[imageSegment.id] || []; // Use filterMap to assign filters
+            console.log(`Image segment ID ${imageSegment.id}: filters=`, JSON.stringify(filters, null, 2));
             newVideoLayers[layerIndex].push({
               id: imageSegment.id,
               type: 'image',
@@ -282,7 +299,9 @@ const TimelineComponent = ({
               effectiveWidth: imageSegment.effectiveWidth,
               effectiveHeight: imageSegment.effectiveHeight,
               maintainAspectRatio: imageSegment.maintainAspectRatio,
-              isElement: imageSegment.element !== undefined ? imageSegment.element : false, // Map element to isElement
+              isElement: imageSegment.element !== undefined ? imageSegment.element : false,
+              keyframes: imageSegment.keyframes || {},
+              filters,
             });
           }
         }
@@ -292,6 +311,7 @@ const TimelineComponent = ({
             const layerIndex = textSegment.layer || 0;
             if (layerIndex < 0) continue;
             while (newVideoLayers.length <= layerIndex) newVideoLayers.push([]);
+            console.log(`Text segment ID ${textSegment.id}: no filters applied`);
             newVideoLayers[layerIndex].push({
               id: textSegment.id,
               type: 'text',
@@ -300,11 +320,14 @@ const TimelineComponent = ({
               duration: textSegment.timelineEndTime - textSegment.timelineStartTime,
               layer: layerIndex,
               fontFamily: textSegment.fontFamily || 'Arial',
-              fontSize: textSegment.fontSize || 24,
+              scale: textSegment.scale || 1.0, // Use scale instead of fontSize
               fontColor: textSegment.fontColor || '#FFFFFF',
               backgroundColor: textSegment.backgroundColor || 'transparent',
               positionX: textSegment.positionX || 0,
               positionY: textSegment.positionY || 0,
+              keyframes: textSegment.keyframes || {},
+              filters: [],
+              alignment: textSegment.alignment || 'center',
             });
           }
         }
@@ -317,6 +340,7 @@ const TimelineComponent = ({
             while (newAudioLayers.length <= layerIndex) newAudioLayers.push([]);
             const filename = audioSegment.audioFileName || audioSegment.audioPath.split('/').pop();
             const audioUrl = `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(filename)}`;
+            console.log(`Audio segment ID ${audioSegment.id}: no filters applied`);
             const newSegment = {
               id: audioSegment.id,
               type: 'audio',
@@ -347,7 +371,8 @@ const TimelineComponent = ({
           { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
         );
 
-        console.log('Setting audioLayers:', JSON.stringify(newAudioLayers, null, 2));
+        console.log('Loaded videoLayers:', JSON.stringify(newVideoLayers, null, 2));
+        console.log('Loaded audioLayers:', JSON.stringify(newAudioLayers, null, 2));
         setVideoLayers(newVideoLayers);
         setAudioLayers(newAudioLayers);
         setTransitions(transitionsResponse.data || []);
@@ -359,15 +384,33 @@ const TimelineComponent = ({
           });
         });
         setTotalDuration(maxEndTime > 0 ? maxEndTime : 0);
+
+        // Force state refresh and notify parent
+        console.log('Setting videoLayers and triggering state refresh');
+        if (onSegmentSelect) {
+          console.log('Calling onSegmentSelect with null to refresh state');
+          onSegmentSelect(null); // Trigger state refresh
+        }
       }
     } catch (error) {
       console.error('Error loading project timeline:', error);
     }
   };
+    useEffect(() => {
+      if (projectId && sessionId && videos.length > 0 && thumbnailsGenerated) {
+        loadProjectTimeline().then(() => {
+          setVideoLayers((prev) => [...prev]);
+          if (onSegmentSelect) {
+            onSegmentSelect(null);
+          }
+        });
+      }
+    }, [projectId, sessionId, videos, thumbnailsGenerated]);
 
-  useEffect(() => {
-    if (projectId && sessionId && videos.length > 0 && thumbnailsGenerated) loadProjectTimeline();
-  }, [projectId, sessionId, videos]);
+  const roundToThreeDecimals = (value) => {
+    if (value == null || isNaN(value)) return 0;
+    return Math.round(value * 1000) / 1000;
+  };
 
   const videoHandler = VideoSegmentHandler({
     projectId,
@@ -380,6 +423,7 @@ const TimelineComponent = ({
     loadProjectTimeline,
     API_BASE_URL,
     timelineRef,
+    roundToThreeDecimals,
   });
 
   const textHandler = TextSegmentHandler({
@@ -392,6 +436,7 @@ const TimelineComponent = ({
     loadProjectTimeline,
     API_BASE_URL,
     timelineRef,
+    roundToThreeDecimals
   });
 
   const imageHandler = ImageSegmentHandler({
@@ -405,6 +450,7 @@ const TimelineComponent = ({
     loadProjectTimeline,
     API_BASE_URL,
     timelineRef,
+    roundToThreeDecimals
   });
 
   const audioHandler = AudioSegmentHandler({
@@ -417,6 +463,7 @@ const TimelineComponent = ({
     loadProjectTimeline,
     API_BASE_URL,
     timelineRef,
+    roundToThreeDecimals
   });
 
   const generalHandler = GeneralSegmentHandler({
@@ -446,6 +493,7 @@ const TimelineComponent = ({
     updateImageSegment: imageHandler.updateImageSegment,
     updateAudioSegment: audioHandler.updateAudioSegment,
     fetchVideoDuration: videoHandler.fetchVideoDuration,
+    roundToThreeDecimals
   });
 
   useEffect(() => {

@@ -23,15 +23,6 @@ const TimelineControls = ({
       <span className="time-display">
         {formatTime(currentTime)} / {formatTime(totalDuration)}
       </span>
-      <div className="history-controls">
-        <button onClick={handleUndo} disabled={!canUndo}>
-          ↩️ Undo
-        </button>
-        <button onClick={handleRedo} disabled={!canRedo}>
-          ↪️ Redo
-        </button>
-        {isSaving && <span className="saving-indicator">Saving...</span>}
-      </div>
       <div className="add-text-control">
         <button onClick={onAddTextClick}>Add Text</button>
       </div>

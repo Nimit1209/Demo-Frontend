@@ -11,6 +11,7 @@ const AudioSegmentHandler = ({
   loadProjectTimeline,
   API_BASE_URL,
   timelineRef,
+  roundToThreeDecimals, // Destructure roundToThreeDecimals
 }) => {
   const updateAudioSegment = async (audioSegmentId, newStartTime, newLayer, newDuration, startTimeWithinAudio, endTimeWithinAudio, draggingItem) => {
     if (!projectId || !sessionId) return;
@@ -20,7 +21,7 @@ const AudioSegmentHandler = ({
       let item = draggingItem;
       if (!item) {
         const layer = audioLayers[Math.abs(newLayer) - 1];
-        item = layer.find(i => i.id === audioSegmentId);
+        item = layer.find((i) => i.id === audioSegmentId);
       }
       if (!item) {
         throw new Error(`Audio segment with ID ${audioSegmentId} not found in layer ${newLayer}`);
@@ -48,11 +49,11 @@ const AudioSegmentHandler = ({
 
       const requestBody = {
         audioSegmentId,
-        timelineStartTime: newStartTime,
-        timelineEndTime: adjustedTimelineEndTime,
+        timelineStartTime: roundToThreeDecimals(newStartTime), // Round
+        timelineEndTime: roundToThreeDecimals(adjustedTimelineEndTime), // Round
         layer: newLayer,
-        startTime: clampedStartTimeWithinAudio,
-        endTime: clampedEndTimeWithinAudio,
+        startTime: roundToThreeDecimals(clampedStartTimeWithinAudio), // Round
+        endTime: roundToThreeDecimals(clampedEndTimeWithinAudio), // Round
         ...(item.volume !== undefined && { volume: item.volume })
       };
 
@@ -67,20 +68,23 @@ const AudioSegmentHandler = ({
 
       const updatedItem = {
         ...item,
-        startTime: newStartTime,
+        startTime: roundToThreeDecimals(newStartTime), // Round
         duration: adjustedDuration,
-        timelineEndTime: adjustedTimelineEndTime,
-        startTimeWithinAudio: clampedStartTimeWithinAudio,
-        endTimeWithinAudio: clampedEndTimeWithinAudio,
+        timelineStartTime: roundToThreeDecimals(newStartTime), // Round
+        timelineEndTime: roundToThreeDecimals(adjustedTimelineEndTime), // Round
+        startTimeWithinAudio: roundToThreeDecimals(clampedStartTimeWithinAudio), // Round
+        endTimeWithinAudio: roundToThreeDecimals(clampedEndTimeWithinAudio), // Round
       };
       const layerIndex = Math.abs(newLayer) - 1;
-      setAudioLayers(prevLayers => {
+      setAudioLayers((prevLayers) => {
         const newLayers = [...prevLayers];
-        newLayers[layerIndex] = newLayers[layerIndex].map(i => i.id === audioSegmentId ? updatedItem : i);
+        newLayers[layerIndex] = newLayers[layerIndex].map((i) => (i.id === audioSegmentId ? updatedItem : i));
         return newLayers;
       });
 
-      console.log(`Updated audio segment ${audioSegmentId} to start at ${newStartTime}s, end at ${adjustedTimelineEndTime}s, layer ${newLayer}, startTimeWithinAudio at ${clampedStartTimeWithinAudio}s, endTimeWithinAudio at ${clampedEndTimeWithinAudio}s`);
+      console.log(
+        `Updated audio segment ${audioSegmentId} to start at ${requestBody.timelineStartTime}s, end at ${requestBody.timelineEndTime}s, layer ${newLayer}, startTimeWithinAudio at ${requestBody.startTime}s, endTimeWithinAudio at ${requestBody.endTime}s`
+      );
     } catch (error) {
       console.error('Error updating audio segment:', error.response?.data || error.message);
       throw error;
@@ -115,7 +119,7 @@ const AudioSegmentHandler = ({
     targetLayerIndex = Math.max(0, targetLayerIndex);
     const backendLayer = -(targetLayerIndex + 1);
 
-    let newAudioLayers = audioLayers.map(layer => [...layer]);
+    let newAudioLayers = audioLayers.map((layer) => [...layer]);
 
     if (!draggingItem) {
       const dataString = e.dataTransfer.getData('application/json');
@@ -129,14 +133,14 @@ const AudioSegmentHandler = ({
           let hasOverlap = true;
 
           while (hasOverlap) {
-            hasOverlap = targetLayerAudios.some(existing => {
+            hasOverlap = targetLayerAudios.some((existing) => {
               const start = existing.startTime;
               const end = start + existing.duration;
               const newEnd = adjustedStartTime + audio.duration;
               return adjustedStartTime < end && newEnd > start;
             });
             if (hasOverlap) {
-              const overlapping = targetLayerAudios.find(existing => {
+              const overlapping = targetLayerAudios.find((existing) => {
                 const start = existing.startTime;
                 const end = start + existing.duration;
                 const newEnd = adjustedStartTime + audio.duration;
@@ -152,10 +156,10 @@ const AudioSegmentHandler = ({
             {
               audioFileName: audio.fileName,
               layer: backendLayer,
-              timelineStartTime: adjustedStartTime,
-              timelineEndTime: adjustedStartTime + audio.duration,
-              startTime: 0,
-              endTime: audio.duration,
+              timelineStartTime: roundToThreeDecimals(adjustedStartTime), // Round
+              timelineEndTime: roundToThreeDecimals(adjustedStartTime + audio.duration), // Round
+              startTime: roundToThreeDecimals(0), // Round
+              endTime: roundToThreeDecimals(audio.duration), // Round
             },
             {
               params: { sessionId },
@@ -179,7 +183,7 @@ const AudioSegmentHandler = ({
 
     while (newAudioLayers.length <= targetLayerIndex) newAudioLayers.push([]);
 
-    const hasOverlap = newAudioLayers[targetLayerIndex].some(audio => {
+    const hasOverlap = newAudioLayers[targetLayerIndex].some((audio) => {
       if (audio.id === draggingItem.id) return false;
       const start = audio.startTime;
       const end = start + audio.duration;
@@ -197,19 +201,21 @@ const AudioSegmentHandler = ({
 
     const updatedItem = {
       ...draggingItem,
-      startTime: newStartTime,
+      startTime: roundToThreeDecimals(newStartTime), // Round
       layer: backendLayer,
-      timelineStartTime: newStartTime,
-      timelineEndTime: newStartTime + draggingItem.duration,
+      timelineStartTime: roundToThreeDecimals(newStartTime), // Round
+      timelineEndTime: roundToThreeDecimals(newStartTime + draggingItem.duration), // Round
+      startTimeWithinAudio: roundToThreeDecimals(draggingItem.startTimeWithinAudio), // Round
+      endTimeWithinAudio: roundToThreeDecimals(draggingItem.endTimeWithinAudio), // Round
     };
 
     if (isSameLayer) {
       const layer = newAudioLayers[targetLayerIndex];
-      const itemIndex = layer.findIndex(a => a.id === draggingItem.id);
+      const itemIndex = layer.findIndex((a) => a.id === draggingItem.id);
       layer[itemIndex] = updatedItem;
     } else {
       if (sourceLayerIndex !== -1) {
-        newAudioLayers[sourceLayerIndex] = newAudioLayers[sourceLayerIndex].filter(a => a.id !== draggingItem.id);
+        newAudioLayers[sourceLayerIndex] = newAudioLayers[sourceLayerIndex].filter((a) => a.id !== draggingItem.id);
       }
       newAudioLayers[targetLayerIndex].push(updatedItem);
     }
@@ -219,11 +225,11 @@ const AudioSegmentHandler = ({
     autoSave([], newAudioLayers);
     await updateAudioSegment(
       draggingItem.id,
-      newStartTime,
+      roundToThreeDecimals(newStartTime), // Round
       backendLayer,
       draggingItem.duration,
-      updatedItem.startTimeWithinAudio,
-      updatedItem.endTimeWithinAudio,
+      roundToThreeDecimals(updatedItem.startTimeWithinAudio), // Round
+      roundToThreeDecimals(updatedItem.endTimeWithinAudio), // Round
       updatedItem
     );
 
@@ -238,26 +244,28 @@ const AudioSegmentHandler = ({
     const secondPartDuration = item.duration - splitTime;
     let newAudioLayers = [...audioLayers];
     const layer = newAudioLayers[layerIndex];
-    const itemIndex = layer.findIndex(i => i.id === item.id);
+    const itemIndex = layer.findIndex((i) => i.id === item.id);
 
     const startWithinAudio = item.startTimeWithinAudio || 0;
     const firstPart = {
       ...item,
       duration: firstPartDuration,
-      timelineEndTime: item.startTime + firstPartDuration,
-      endTimeWithinAudio: startWithinAudio + firstPartDuration,
+      timelineStartTime: roundToThreeDecimals(item.startTime), // Round
+      timelineEndTime: roundToThreeDecimals(item.startTime + firstPartDuration), // Round
+      startTime: roundToThreeDecimals(item.startTime), // Round
+      endTimeWithinAudio: roundToThreeDecimals(startWithinAudio + firstPartDuration), // Round
     };
     layer[itemIndex] = firstPart;
 
     const secondPart = {
       ...item,
       id: `${item.id}-split-${Date.now()}`,
-      startTime: item.startTime + splitTime,
-      timelineStartTime: item.startTime + splitTime,
+      startTime: roundToThreeDecimals(item.startTime + splitTime), // Round
+      timelineStartTime: roundToThreeDecimals(item.startTime + splitTime), // Round
       duration: secondPartDuration,
-      timelineEndTime: item.startTime + item.duration,
-      startTimeWithinAudio: startWithinAudio + firstPartDuration,
-      endTimeWithinAudio: startWithinAudio + item.duration,
+      timelineEndTime: roundToThreeDecimals(item.startTime + item.duration), // Round
+      startTimeWithinAudio: roundToThreeDecimals(startWithinAudio + firstPartDuration), // Round
+      endTimeWithinAudio: roundToThreeDecimals(startWithinAudio + item.duration), // Round
     };
     layer.push(secondPart);
 
@@ -267,15 +275,14 @@ const AudioSegmentHandler = ({
 
     await updateAudioSegment(
       item.id,
-      item.startTime,
+      roundToThreeDecimals(item.startTime), // Round
       item.layer,
       firstPartDuration,
-      firstPart.startTimeWithinAudio,
-      firstPart.endTimeWithinAudio,
+      roundToThreeDecimals(firstPart.startTimeWithinAudio), // Round
+      roundToThreeDecimals(firstPart.endTimeWithinAudio), // Round
       firstPart
     );
 
-    // Try both full fileName and basename
     const audioFileNames = [
       item.fileName,
       item.fileName.split('/').pop()
@@ -292,10 +299,10 @@ const AudioSegmentHandler = ({
           {
             audioFileName,
             layer: item.layer,
-            timelineStartTime: secondPart.startTime,
-            timelineEndTime: secondPart.timelineEndTime,
-            startTime: secondPart.startTimeWithinAudio,
-            endTime: secondPart.endTimeWithinAudio,
+            timelineStartTime: roundToThreeDecimals(secondPart.startTime), // Round
+            timelineEndTime: roundToThreeDecimals(secondPart.timelineEndTime), // Round
+            startTime: roundToThreeDecimals(secondPart.startTimeWithinAudio), // Round
+            endTime: roundToThreeDecimals(secondPart.endTimeWithinAudio), // Round
           },
           {
             params: { sessionId },
@@ -313,9 +320,8 @@ const AudioSegmentHandler = ({
 
     if (!success) {
       console.error('Failed to add second segment after trying all fileNames');
-      // Revert frontend changes
       newAudioLayers = [...audioLayers];
-      newAudioLayers[layerIndex] = audioLayers[layerIndex].map(a =>
+      newAudioLayers[layerIndex] = audioLayers[layerIndex].map((a) =>
         a.id === item.id ? { ...item } : a
       );
       setAudioLayers(newAudioLayers);
@@ -341,7 +347,6 @@ const AudioSegmentHandler = ({
         throw new Error('Authentication token missing');
       }
 
-      // Step 1: Fetch project data
       let projectData, extractedAudios;
       try {
         const response = await axios.get(`${API_BASE_URL}/projects/${projectId}`, {
@@ -360,9 +365,8 @@ const AudioSegmentHandler = ({
         throw new Error('Failed to fetch project data');
       }
 
-      // Step 2: Find the exact audio entry
       const basename = item.fileName.split('/').pop();
-      const audioEntry = extractedAudios.find(a =>
+      const audioEntry = extractedAudios.find((a) =>
         a.audioFileName === item.fileName ||
         a.audioFileName === basename ||
         a.audioPath === item.fileName ||
@@ -372,60 +376,58 @@ const AudioSegmentHandler = ({
         console.error('No matching extracted audio found for fileName:', item.fileName, 'basename:', basename);
         throw new Error('Extracted audio not found in project');
       }
-      const audioFileName = audioEntry.audioFileName; // Use the exact filename from extractedAudioJson
+      const audioFileName = audioEntry.audioFileName;
       console.log('Using audioFileName:', audioFileName);
 
-      // Step 3: Calculate durations
       const firstPartDuration = splitTime;
       const secondPartDuration = item.duration - splitTime;
       const startWithinAudio = item.startTimeWithinAudio || 0;
       console.log('firstPartDuration=', firstPartDuration, 'secondPartDuration=', secondPartDuration, 'startWithinAudio=', startWithinAudio);
 
-      // Step 4: Prepare segment data
       const firstPart = {
         ...item,
         duration: firstPartDuration,
-        timelineEndTime: item.startTime + firstPartDuration,
-        endTimeWithinAudio: startWithinAudio + firstPartDuration,
+        timelineStartTime: roundToThreeDecimals(item.startTime), // Round
+        timelineEndTime: roundToThreeDecimals(item.startTime + firstPartDuration), // Round
+        startTime: roundToThreeDecimals(item.startTime), // Round
+        endTimeWithinAudio: roundToThreeDecimals(startWithinAudio + firstPartDuration), // Round
       };
       const secondPartId = `${item.id}-split-${Date.now()}`;
       const secondPart = {
         ...item,
         id: secondPartId,
-        startTime: item.startTime + splitTime,
-        timelineStartTime: item.startTime + splitTime,
+        startTime: roundToThreeDecimals(item.startTime + splitTime), // Round
+        timelineStartTime: roundToThreeDecimals(item.startTime + splitTime), // Round
         duration: secondPartDuration,
-        timelineEndTime: item.startTime + item.duration,
-        startTimeWithinAudio: startWithinAudio + firstPartDuration,
-        endTimeWithinAudio: startWithinAudio + item.duration,
-        fileName: audioFileName, // Ensure consistency
+        timelineEndTime: roundToThreeDecimals(item.startTime + item.duration), // Round
+        startTimeWithinAudio: roundToThreeDecimals(startWithinAudio + firstPartDuration), // Round
+        endTimeWithinAudio: roundToThreeDecimals(startWithinAudio + item.duration), // Round
+        fileName: audioFileName,
       };
       console.log('firstPart=', firstPart);
       console.log('secondPart=', secondPart);
 
-      // Step 5: Update first segment
       console.log('Calling updateAudioSegment for firstPart:', firstPart.id);
       await updateAudioSegment(
         item.id,
-        item.startTime,
+        roundToThreeDecimals(item.startTime), // Round
         item.layer,
         firstPartDuration,
-        firstPart.startTimeWithinAudio,
-        firstPart.endTimeWithinAudio,
+        roundToThreeDecimals(firstPart.startTimeWithinAudio), // Round
+        roundToThreeDecimals(firstPart.endTimeWithinAudio), // Round
         firstPart
       );
 
-      // Step 6: Add second segment
       try {
         const response = await axios.post(
           `${API_BASE_URL}/projects/${projectId}/add-project-audio-to-timeline`,
           {
             audioFileName: audioFileName,
             layer: item.layer,
-            timelineStartTime: secondPart.startTime,
-            timelineEndTime: secondPart.timelineEndTime,
-            startTime: secondPart.startTimeWithinAudio,
-            endTime: secondPart.endTimeWithinAudio,
+            timelineStartTime: roundToThreeDecimals(secondPart.startTime), // Round
+            timelineEndTime: roundToThreeDecimals(secondPart.timelineEndTime), // Round
+            startTime: roundToThreeDecimals(secondPart.startTimeWithinAudio), // Round
+            endTime: roundToThreeDecimals(secondPart.endTimeWithinAudio), // Round
             volume: item.volume || 1.0,
           },
           {
@@ -439,29 +441,27 @@ const AudioSegmentHandler = ({
         throw new Error('Failed to add second audio segment');
       }
 
-      // Step 7: Update frontend state
       let newAudioLayers = [...audioLayers];
       const layer = [...newAudioLayers[layerIndex]];
-      const itemIndex = layer.findIndex(i => i.id === item.id);
+      const itemIndex = layer.findIndex((i) => i.id === item.id);
       layer[itemIndex] = firstPart;
       layer.push(secondPart);
       newAudioLayers[layerIndex] = layer;
       setAudioLayers(newAudioLayers);
 
-      // Step 8: Save history and auto-save
       saveHistory([], newAudioLayers);
       autoSave([], newAudioLayers);
 
-      // Step 9: Reload timeline to sync with backend
       await loadProjectTimeline();
 
       console.log('Successfully split extracted audio');
     } catch (error) {
       console.error('Error splitting extracted audio:', error.message);
-      setAudioLayers([...audioLayers]); // Revert on error
+      setAudioLayers([...audioLayers]);
       alert('Failed to split audio. Please try again.');
     }
   };
+
   return { handleAudioDrop, updateAudioSegment, handleAudioSplit, handleExtractedAudioSplit };
 };
 
