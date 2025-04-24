@@ -21,8 +21,7 @@ const VideoPreview = ({
   photos = [],
   transitions = [],
   fps = 25,
-  selectedSegment, // Add selectedSegment prop
-  lastSelectedSegment, // Add lastSelectedSegment prop
+  projectId,
 }) => {
   const [loadingVideos, setLoadingVideos] = useState(new Set());
   const [loadingAudios, setLoadingAudios] = useState(new Set());
@@ -42,9 +41,7 @@ const VideoPreview = ({
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     const ms = Math.floor((seconds % 1) * 100);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms
-      .toString()
-      .padStart(2, '0')}`;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
   const lerp = (a, b, t) => a + (b - a) * Math.min(Math.max(t, 0), 1);
@@ -66,8 +63,8 @@ const VideoPreview = ({
 
   useEffect(() => {
     // Debug audio elements
-    console.log('Visible audio elements:', getVisibleAudioElements());
-    console.log('Audio refs:', audioRefs.current);
+    console.log("Visible audio elements:", getVisibleAudioElements());
+    console.log("Audio refs:", audioRefs.current);
   }, [currentTime]);
 
   const computeTransitionEffects = (element, localTime) => {
@@ -92,13 +89,7 @@ const VideoPreview = ({
       const progress = (currentTime - transition.timelineStartTime) / transition.duration;
       const parameters = transition.parameters || {};
 
-      if (transition.type === 'Fade') {
-        if (transition.toSegmentId === element.id && transition.fromSegmentId === null) {
-          effects.opacity = lerp(0, 1, progress);
-        } else if (transition.fromSegmentId === element.id) {
-          effects.opacity = lerp(1, 0, progress);
-        }
-      } else if (transition.type === 'Slide') {
+      if (transition.type === 'Slide') {
         const direction = parameters.direction || 'right';
         const canvasWidth = canvasDimensions.width;
         const canvasHeight = canvasDimensions.height;
@@ -122,29 +113,6 @@ const VideoPreview = ({
             effects.positionY = lerp(0, canvasHeight, progress);
           } else if (direction === 'bottom') {
             effects.positionY = lerp(0, -canvasHeight, progress);
-          }
-        }
-      } else if (transition.type === 'Wipe') {
-        const direction = parameters.direction || 'left';
-        if (transition.toSegmentId === element.id) {
-          if (direction === 'left') {
-            effects.clipPath = `inset(0 calc((1 - ${progress}) * 100%) 0 0)`;
-          } else if (direction === 'right') {
-            effects.clipPath = `inset(0 0 0 calc((1 - ${progress}) * 100%))`;
-          } else if (direction === 'top') {
-            effects.clipPath = `inset(calc((1 - ${progress}) * 100%) 0 0 0)`;
-          } else if (direction === 'bottom') {
-            effects.clipPath = `inset(0 0 calc((1 - ${progress}) * 100%) 0)`;
-          }
-        } else if (transition.fromSegmentId === element.id) {
-          if (direction === 'left') {
-            effects.clipPath = `inset(0 calc(${progress} * 100%) 0 0)`;
-          } else if (direction === 'right') {
-            effects.clipPath = `inset(0 0 0 calc(${progress} * 100%))`;
-          } else if (direction === 'top') {
-            effects.clipPath = `inset(calc(${progress} * 100%) 0 0 0)`;
-          } else if (direction === 'bottom') {
-            effects.clipPath = `inset(0 0 calc(${progress} * 100%) 0)`;
           }
         }
       } else if (transition.type === 'Zoom') {
@@ -163,48 +131,14 @@ const VideoPreview = ({
         } else if (transition.fromSegmentId === element.id) {
           effects.rotate = lerp(0, angle, progress); // From 0 to angle
         }
-      } else if (transition.type === 'Push') {
-        const direction = parameters.direction || 'right';
-        const canvasWidth = canvasDimensions.width;
-        const canvasHeight = canvasDimensions.height;
-
-        if (transition.toSegmentId === element.id) {
-          if (direction === 'right') {
-            effects.positionX = lerp(-canvasWidth, 0, progress);
-          } else if (direction === 'left') {
-            effects.positionX = lerp(canvasWidth, 0, progress);
-          } else if (direction === 'top') {
-            effects.positionY = lerp(canvasHeight, 0, progress);
-          } else if (direction === 'bottom') {
-            effects.positionY = lerp(-canvasHeight, 0, progress);
-          }
-        } else if (transition.fromSegmentId === element.id) {
-          if (direction === 'right') {
-            effects.positionX = lerp(0, canvasWidth, progress);
-          } else if (direction === 'left') {
-            effects.positionX = lerp(0, -canvasWidth, progress);
-          } else if (direction === 'top') {
-            effects.positionY = lerp(0, -canvasHeight, progress);
-          } else if (direction === 'bottom') {
-            effects.positionY = lerp(0, canvasHeight, progress);
-          }
-        }
       }
     }
 
     return effects;
   };
 
-  const computeFilterStyle = (filters, localTime, elementId) => {
-    // Use the filters array directly from the element
-    const appliedFilters = Array.isArray(filters) ? filters : [];
-
-    if (!Array.isArray(appliedFilters)) {
-      console.warn(`computeFilterStyle received invalid filters for element ID ${elementId}:`, appliedFilters);
-      return { css: '', webgl: [] };
-    }
-
-    console.log(`Processing filters for element ID ${elementId}:`, appliedFilters);
+  const computeFilterStyle = (filters, localTime) => {
+    if (!filters || !Array.isArray(filters)) return { css: '', webgl: [] };
 
     const cssFilterMap = {
       brightness: (value) => `brightness(${parseFloat(value) + 1})`,
@@ -225,7 +159,7 @@ const VideoPreview = ({
 
     const cssStyles = [];
 
-    appliedFilters.forEach((filter) => {
+    filters.forEach((filter) => {
       const { filterName, filterValue } = filter;
       if (cssFilterMap[filterName]) {
         const style = cssFilterMap[filterName](filterValue);
@@ -290,7 +224,7 @@ const VideoPreview = ({
           video.preload = 'auto';
           video.src = videoUrl;
           video.crossOrigin = 'anonymous';
-          video.muted = true;
+          video.muted = true; // Ensure preload video is muted
           video.style.display = 'none';
           document.body.appendChild(video);
           preloadRefs.current[item.id] = video;
@@ -328,7 +262,7 @@ const VideoPreview = ({
     const preloadAudios = () => {
       const allAudioItems = audioLayers.flat().filter((item) => item.type === 'audio');
       const preloadPromises = allAudioItems.map((item) => {
-        const audioUrl = `${API_BASE_URL}/projects/88/audio/${encodeURIComponent(item.fileName)}`;
+        const audioUrl = `${API_BASE_URL}/projects/{projectId}/audio/${encodeURIComponent(item.fileName)}`;
 
         if (!preloadRefs.current[item.id]) {
           const audio = document.createElement('audio');
@@ -339,8 +273,8 @@ const VideoPreview = ({
           audio.style.display = 'none';
           document.body.appendChild(audio);
           preloadRefs.current[item.id] = audio;
-          audio.src = audioUrl;
-          audio.load();
+          audio.src = audioUrl; // Set src after appending
+          audio.load(); // Explicitly load to initialize
 
           console.log(`Preloading audio: ${item.fileName}, URL: ${audioUrl}`);
 
@@ -454,6 +388,7 @@ const VideoPreview = ({
             videoRef.addEventListener('loadeddata', setVideoTime, { once: true });
           }
 
+          // Ensure all videos are muted
           videoRef.muted = true;
 
           if (isPlaying && preloadComplete) {
@@ -471,7 +406,7 @@ const VideoPreview = ({
     visibleAudioElements.forEach((element) => {
       const audioRef = audioRefs.current[element.id];
       if (audioRef) {
-        const audioUrl = `${API_BASE_URL}/projects/88/audio/${encodeURIComponent(element.fileName)}`;
+        const audioUrl = `${API_BASE_URL}/projects/{projectId}/audio/${encodeURIComponent(element.fileName)}`;
 
         if (!audioRef.src) {
           audioRef.src = audioUrl;
@@ -499,6 +434,7 @@ const VideoPreview = ({
           }, { once: true });
         }
 
+        // Apply volume from keyframes or default
         const volume = getKeyframeValue(
           element.keyframes && element.keyframes.volume,
           element.localTime,
@@ -508,15 +444,12 @@ const VideoPreview = ({
         console.log(`Set audio ${element.fileName} volume to ${volume}`);
 
         if (isPlaying && preloadComplete) {
-          audioRef
-            .play()
+          audioRef.play()
             .then(() => console.log(`Audio ${element.fileName} started playing`))
             .catch((error) => console.error(`Audio playback error for ${element.fileName}:`, error));
         } else {
           audioRef.pause();
-          console.log(
-            `Audio ${element.fileName} paused (isPlaying: ${isPlaying}, preloadComplete: ${preloadComplete})`
-          );
+          console.log(`Audio ${element.fileName} paused (isPlaying: ${isPlaying}, preloadComplete: ${preloadComplete})`);
         }
       } else {
         console.warn(`No audioRef found for element ID ${element.id}`);
@@ -558,7 +491,7 @@ const VideoPreview = ({
   }, [currentTime, isPlaying, videoLayers, audioLayers, preloadComplete]);
 
   useEffect(() => {
-    const frameDuration = 1 / fps;
+    const frameDuration = 1 / fps; // Duration of one frame in seconds
 
     const updatePlayhead = (timestamp) => {
       if (isPlaying) {
@@ -566,9 +499,9 @@ const VideoPreview = ({
           lastUpdateTimeRef.current = timestamp;
         }
         const deltaMs = timestamp - lastUpdateTimeRef.current;
-        const framesElapsed = Math.floor(deltaMs / (1000 / fps));
-        const deltaTime = framesElapsed * frameDuration;
-        lastUpdateTimeRef.current = timestamp - (deltaMs % (1000 / fps));
+        const framesElapsed = Math.floor(deltaMs / (1000 / fps)); // Number of frames based on FPS
+        const deltaTime = framesElapsed * frameDuration; // Time advanced in seconds
+        lastUpdateTimeRef.current = timestamp - (deltaMs % (1000 / fps)); // Align to frame boundary
 
         const newTime = Math.min(totalDuration, currentTime + deltaTime);
         onTimeUpdate(newTime);
@@ -577,13 +510,13 @@ const VideoPreview = ({
           onTimeUpdate(0);
         }
       } else {
-        lastUpdateTimeRef.current = timestamp;
+        lastUpdateTimeRef.current = timestamp; // Reset timestamp when paused
       }
       animationFrameRef.current = requestAnimationFrame(updatePlayhead);
     };
 
     if (isPlaying) {
-      lastUpdateTimeRef.current = null;
+      lastUpdateTimeRef.current = null; // Reset on play
       animationFrameRef.current = requestAnimationFrame(updatePlayhead);
     }
 
@@ -645,14 +578,12 @@ const VideoPreview = ({
         if (currentTime >= itemStartTime && currentTime < itemEndTime) {
           visibleElements.push({
             ...item,
-            filters: Array.isArray(item.filters) ? [...item.filters] : [],
             layerIndex,
             localTime: currentTime - itemStartTime,
           });
         }
       });
     });
-    console.log('Visible elements:', visibleElements);
     return visibleElements.sort((a, b) => a.layerIndex - b.layerIndex);
   };
 
@@ -695,8 +626,6 @@ const VideoPreview = ({
           }}
         >
           {visibleElements.map((element) => {
-            console.log(`Rendering element ID ${element.id} (${element.type}), filters:`, element.filters);
-
             const positionX = getKeyframeValue(
               element.keyframes && element.keyframes.positionX,
               element.localTime,
@@ -728,37 +657,27 @@ const VideoPreview = ({
             const transitionScale = transitionEffects.scale;
             const transitionRotate = transitionEffects.rotate;
 
-            // Pass element.id to computeFilterStyle
-           const { css: filterStyle, webgl: webglFilters } = computeFilterStyle(
-             element.filters,
-             element.localTime,
-             element.id
-           );
+            const { css: filterStyle, webgl: webglFilters } = computeFilterStyle(element.filters, element.localTime);
 
-           const filters = Array.isArray(element.filters) ? element.filters : [];
-           if (!Array.isArray(element.filters)) {
-             console.warn(`Invalid filters for element ID ${element.id} (${element.type}):`, element.filters);
-           }
-
-           let transform = '';
-           const rotateFilter = filters.find((f) => f.filterName === 'rotate');
-           const flipFilter = filters.find((f) => f.filterName === 'flip');
-           if (rotateFilter) {
-             transform += `rotate(${parseInt(rotateFilter.filterValue)}deg) `;
-           }
-           if (flipFilter) {
-             if (flipFilter.filterValue === 'horizontal') {
-               transform += 'scaleX(-1) ';
-             } else if (flipFilter.filterValue === 'vertical') {
-               transform += 'scaleY(-1) ';
-             }
-           }
-           if (transitionScale !== null) {
-             transform += `scale(${transitionScale}) `;
-           }
-           if (transitionRotate !== null) {
-             transform += `rotate(${transitionRotate}deg) `;
-           }
+            let transform = '';
+            const rotateFilter = element.filters?.find((f) => f.filterName === 'rotate');
+            const flipFilter = element.filters?.find((f) => f.filterName === 'flip');
+            if (rotateFilter) {
+              transform += `rotate(${parseInt(rotateFilter.filterValue)}deg) `;
+            }
+            if (flipFilter) {
+              if (flipFilter.filterValue === 'horizontal') {
+                transform += 'scaleX(-1) ';
+              } else if (flipFilter.filterValue === 'vertical') {
+                transform += 'scaleY(-1) ';
+              }
+            }
+            if (transitionScale !== null) {
+              transform += `scale(${transitionScale}) `;
+            }
+            if (transitionRotate !== null) {
+              transform += `rotate(${transitionRotate}deg) `;
+            }
 
             if (element.type === 'video') {
               const videoWidth = element.width || 1080;
@@ -775,7 +694,7 @@ const VideoPreview = ({
                   <video
                     ref={(el) => (videoRefs.current[element.id] = el)}
                     className="preview-video"
-                    muted={true}
+                    muted={true} // Always mute video elements
                     crossOrigin="anonymous"
                     style={{
                       position: 'absolute',
@@ -843,24 +762,24 @@ const VideoPreview = ({
 
               return (
                 <React.Fragment key={element.id}>
-<img
-  src={webglFilters.length > 0 ? null : photo.filePath}
-  alt="Preview"
-  crossOrigin="anonymous"
-  style={{
-    position: 'absolute',
-    width: `${displayWidth}px`,
-    height: `${displayHeight}px`,
-    left: `${posX}px`,
-    top: `${posY}px`,
-    opacity,
-    zIndex: element.layerIndex,
-    filter: filterStyle,
-    transform: transform.trim(),
-    clipPath,
-    display: webglFilters.length > 0 ? 'none' : 'block',
-  }}
-/>
+                  <img
+                    src={webglFilters.length > 0 ? null : photo.filePath}
+                    alt="Preview"
+                    crossOrigin="anonymous"
+                    style={{
+                      position: 'absolute',
+                      width: `${displayWidth}px`,
+                      height: `${displayHeight}px`,
+                      left: `${posX}px`,
+                      top: `${posY}px`,
+                      opacity,
+                      zIndex: element.layerIndex,
+                      filter: filterStyle,
+                      transform: transform.trim(),
+                      clipPath,
+                      display: webglFilters.length > 0 ? 'none' : 'block',
+                    }}
+                  />
                   {webglFilters.length > 0 && (
                     <canvas
                       style={{

@@ -316,18 +316,28 @@ const TimelineComponent = ({
               id: textSegment.id,
               type: 'text',
               text: textSegment.text,
-              startTime: textSegment.timelineStartTime,
-              duration: textSegment.timelineEndTime - textSegment.timelineStartTime,
+              startTime: textSegment.timelineStartTime || 0,
+              duration: (textSegment.timelineEndTime - textSegment.timelineStartTime) || 0,
               layer: layerIndex,
               fontFamily: textSegment.fontFamily || 'Arial',
-              scale: textSegment.scale || 1.0, // Use scale instead of fontSize
+              scale: textSegment.scale || 1.0,
               fontColor: textSegment.fontColor || '#FFFFFF',
               backgroundColor: textSegment.backgroundColor || 'transparent',
               positionX: textSegment.positionX || 0,
               positionY: textSegment.positionY || 0,
-              keyframes: textSegment.keyframes || {},
-              filters: [],
               alignment: textSegment.alignment || 'center',
+              backgroundOpacity: textSegment.backgroundOpacity ?? 1.0,
+              backgroundBorderWidth: textSegment.backgroundBorderWidth ?? 0,
+              backgroundBorderColor: textSegment.backgroundBorderColor || '#000000',
+              backgroundPadding: textSegment.backgroundPadding ?? 0,
+              backgroundBorderRadius: textSegment.backgroundBorderRadius ?? 0, // New
+              shadowColor: textSegment.shadowColor || 'transparent',
+              shadowOffsetX: textSegment.shadowOffsetX ?? 0,
+              shadowOffsetY: textSegment.shadowOffsetY ?? 0,
+              shadowBlurRadius: textSegment.shadowBlurRadius ?? 0, // New
+              shadowSpread: textSegment.shadowSpread ?? 0, // New
+              shadowOpacity: textSegment.shadowOpacity ?? 1.0, // New
+              keyframes: textSegment.keyframes || {},
             });
           }
         }
@@ -947,11 +957,23 @@ const TimelineComponent = ({
             timelineStartTime: item.startTime,
             timelineEndTime: item.startTime + item.duration,
             fontFamily: item.fontFamily,
-            fontSize: item.fontSize,
+            scale: item.scale,
             fontColor: item.fontColor,
             backgroundColor: item.backgroundColor,
             positionX: item.positionX,
             positionY: item.positionY,
+            alignment: item.alignment,
+            backgroundOpacity: item.backgroundOpacity,
+            backgroundBorderWidth: item.backgroundBorderWidth,
+            backgroundBorderColor: item.backgroundBorderColor,
+            backgroundPadding: item.backgroundPadding,
+            backgroundBorderRadius: item.backgroundBorderRadius, // New
+            shadowColor: item.shadowColor,
+            shadowOffsetX: item.shadowOffsetX,
+            shadowOffsetY: item.shadowOffsetY,
+            shadowBlurRadius: item.shadowBlurRadius, // New
+            shadowSpread: item.shadowSpread, // New
+            shadowOpacity: item.shadowOpacity, // New
             keyframes: item.keyframes || {},
           });
         } else if (item.type === 'video') {
