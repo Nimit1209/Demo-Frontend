@@ -11,7 +11,7 @@ const Dashboard = () => {
   const [newProjectName, setNewProjectName] = useState('');
   const [width, setWidth] = useState(1920);
   const [height, setHeight] = useState(1080);
-  const [fps, setFps] = useState(25); // New state for FPS
+  const [fps, setFps] = useState(25);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [userProfile, setUserProfile] = useState({
@@ -23,13 +23,15 @@ const Dashboard = () => {
   const location = useLocation();
 
   useEffect(() => {
-    fetchProjects();
+    console.log('Dashboard mounted, location state:', location.state);
     fetchUserProfile();
+    fetchProjects();
   }, []);
 
   const fetchUserProfile = async () => {
     try {
       const token = localStorage.getItem('token');
+      console.log('Fetching user profile with token:', token);
       if (!token) {
         console.log('No token found, redirecting to login');
         navigate('/');
@@ -38,6 +40,7 @@ const Dashboard = () => {
       const response = await axios.get(`${API_BASE_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log('User profile response:', response.data);
       const fullName = response.data.name || '';
       const nameParts = fullName.trim().split(' ');
       const firstName = nameParts[0] || '';
@@ -49,17 +52,79 @@ const Dashboard = () => {
       });
     } catch (error) {
       console.error('Error fetching user profile:', error);
+      console.log('Error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+      });
       if (error.response?.status === 401) {
-        navigate('/');
+        console.log('401 Unauthorized, redirecting to login');
+        localStorage.removeItem('token'); // Clear invalid token
+        navigate('/', { state: { error: 'Session expired. Please log in again.' } });
+      } else {
+        setUserProfile({ firstName: '', lastName: '', picture: null });
       }
-      setUserProfile({ firstName: '', lastName: '', picture: null });
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    setIsProfileDropdownOpen(false);
-    navigate('/');
+  const fetchProjects = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      console.log('Fetching projects with token:', token);
+      if (!token) {
+        console.error('No token found, redirecting to login');
+        navigate('/');
+        return;
+      }
+
+      const response = await axios.get(`${API_BASE_URL}/projects`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log('Projects response:', response.data);
+      const projectList = response.data;
+
+      const projectsWithThumbnails = await Promise.all(
+        projectList.map(async (project) => {
+          const projectDetails = await axios.get(`${API_BASE_URL}/projects/${project.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const timelineState = projectDetails.data.timelineState
+            ? typeof projectDetails.data.timelineState === 'string'
+              ? JSON.parse(projectDetails.data.timelineState)
+              : projectDetails.data.timelineState
+            : { segments: [], imageSegments: [] };
+
+          const allSegments = [
+            ...(timelineState.segments || []),
+            ...(timelineState.imageSegments || []),
+          ].sort((a, b) => a.timelineStartTime - b.timelineStartTime);
+
+          let thumbnail = null;
+          if (allSegments.length > 0) {
+            const firstSegment = allSegments[0];
+            if (firstSegment.sourceVideoPath) {
+              thumbnail = await generateVideoThumbnail(firstSegment.sourceVideoPath);
+            } else if (firstSegment.imagePath) {
+              thumbnail = await generateImageThumbnail(project.id, firstSegment.imagePath);
+            }
+          }
+
+          return { ...project, thumbnail };
+        })
+      );
+
+      setProjects(projectsWithThumbnails);
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+      console.log('Error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+      if (error.response?.status === 401) {
+        console.log('401 Unauthorized, redirecting to login');
+        localStorage.removeItem('token'); // Clear invalid token
+        navigate('/', { state: { error: 'Session expired. Please log in again.' } });
+      }
+    }
   };
 
   const generateVideoThumbnail = async (videoPath) => {
@@ -149,59 +214,6 @@ const Dashboard = () => {
     });
   };
 
-  const fetchProjects = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('No token found. User might not be authenticated.');
-        navigate('/');
-        return;
-      }
-
-      const response = await axios.get(`${API_BASE_URL}/projects`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const projectList = response.data;
-
-      const projectsWithThumbnails = await Promise.all(
-        projectList.map(async (project) => {
-          const projectDetails = await axios.get(`${API_BASE_URL}/projects/${project.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const timelineState = projectDetails.data.timelineState
-            ? typeof projectDetails.data.timelineState === 'string'
-              ? JSON.parse(projectDetails.data.timelineState)
-              : projectDetails.data.timelineState
-            : { segments: [], imageSegments: [] };
-
-          const allSegments = [
-            ...(timelineState.segments || []),
-            ...(timelineState.imageSegments || []),
-          ].sort((a, b) => a.timelineStartTime - b.timelineStartTime);
-
-          let thumbnail = null;
-          if (allSegments.length > 0) {
-            const firstSegment = allSegments[0];
-            if (firstSegment.sourceVideoPath) {
-              thumbnail = await generateVideoThumbnail(firstSegment.sourceVideoPath);
-            } else if (firstSegment.imagePath) {
-              thumbnail = await generateImageThumbnail(project.id, firstSegment.imagePath);
-            }
-          }
-
-          return { ...project, thumbnail };
-        })
-      );
-
-      setProjects(projectsWithThumbnails);
-    } catch (error) {
-      console.error('Error fetching user projects:', error);
-      if (error.response?.status === 401) {
-        navigate('/');
-      }
-    }
-  };
-
   const createNewProject = async () => {
     if (!newProjectName) {
       alert('Please enter a project name.');
@@ -216,7 +228,7 @@ const Dashboard = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.error('No token found. User might not be authenticated.');
+        console.error('No token found, redirecting to login');
         navigate('/');
         return;
       }
@@ -227,7 +239,7 @@ const Dashboard = () => {
           name: newProjectName,
           width: width,
           height: height,
-          fps: fps, // Include FPS in the request
+          fps: fps,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -235,13 +247,15 @@ const Dashboard = () => {
       setNewProjectName('');
       setWidth(1920);
       setHeight(1080);
-      setFps(25); // Reset FPS to default
+      setFps(25);
       setIsDropdownOpen(false);
       navigate(`/projecteditor/${response.data.id}`);
     } catch (error) {
       console.error('Error creating project:', error);
       if (error.response?.status === 401) {
-        navigate('/');
+        console.log('401 Unauthorized, redirecting to login');
+        localStorage.removeItem('token');
+        navigate('/', { state: { error: 'Session expired. Please log in again.' } });
       } else if (error.response?.status === 400) {
         alert('Invalid project parameters: ' + error.response.data);
       } else {
@@ -259,7 +273,7 @@ const Dashboard = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.error('No token found. User might not be authenticated.');
+        console.error('No token found, redirecting to login');
         navigate('/');
         return;
       }
@@ -272,7 +286,9 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Error deleting project:', error);
       if (error.response?.status === 401) {
-        navigate('/');
+        console.log('401 Unauthorized, redirecting to login');
+        localStorage.removeItem('token');
+        navigate('/', { state: { error: 'Session expired. Please log in again.' } });
       } else if (error.response?.status === 403) {
         alert('Unauthorized to delete this project');
       } else if (error.response?.status === 404) {
@@ -287,6 +303,12 @@ const Dashboard = () => {
     navigate(`/projecteditor/${projectId}`);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setIsProfileDropdownOpen(false);
+    navigate('/');
+  };
+
   const toggleDropdown = () => {
     setIsDropdownOpen(!isDropdownOpen);
   };
@@ -298,7 +320,7 @@ const Dashboard = () => {
   const handlePresetSelect = (presetWidth, presetHeight, presetFps = 25) => {
     setWidth(presetWidth);
     setHeight(presetHeight);
-    setFps(presetFps); // Set FPS for the preset
+    setFps(presetFps);
   };
 
   return (
@@ -411,6 +433,7 @@ const Dashboard = () => {
 
       <section className="projects-section">
         <h2>My Projects</h2>
+        {location.state?.message && <p className="success-message">{location.state.message}</p>}
         {location.state?.error && <p className="error-message">{location.state.error}</p>}
         <div className="project-grid">
           {projects.length === 0 ? (

@@ -15,10 +15,15 @@ const Login = () => {
         email,
         password,
       });
-      localStorage.setItem("token", response.data.token);
-      navigate("/dashboard");
+
+      if (response.data.token) {
+        localStorage.setItem("token", response.data.token);
+        navigate("/dashboard");
+      } else {
+        alert(response.data.message || "Please verify your email first");
+      }
     } catch (error) {
-      alert(error.response?.data?.message || "Invalid credentials");
+      alert(error.response?.data?.message || error.response?.data || "Login failed");
     }
   };
 

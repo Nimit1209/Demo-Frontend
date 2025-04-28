@@ -6,21 +6,65 @@ import "../CSS/Auth.css";
 const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState({});
+  const [showVerificationMessage, setShowVerificationMessage] = useState(false);
   const navigate = useNavigate();
+
+  const validate = () => {
+    const newErrors = {};
+
+    // Email validation
+    if (!email) {
+      newErrors.email = "Email is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors.email = "Please enter a valid email address";
+    }
+
+    // Password validation
+    if (!password) {
+      newErrors.password = "Password is required";
+    } else if (password.length < 8) {
+      newErrors.password = "Password must be at least 8 characters";
+    } else if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      newErrors.password = "Password must contain both letters and numbers";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSignup = async (e) => {
     e.preventDefault();
+    if (!validate()) return;
+
     try {
-      await axios.post("http://localhost:8080/auth/register", {
+      const response = await axios.post("http://localhost:8080/auth/register", {
         email,
         password,
       });
-      alert("Account created! Please login.");
-      navigate("/");
+
+      if (response.data.message) {
+        setShowVerificationMessage(true);
+      }
     } catch (error) {
-      alert(error.response?.data?.message || "Signup failed");
+      if (error.response) {
+        alert(error.response.data.message || error.response.data || "Signup failed");
+      } else {
+        alert("Network error. Please try again.");
+      }
     }
   };
+  const resendVerification = async () => {
+    try {
+      await axios.post("http://localhost:8080/auth/resend-verification", null, {
+        params: { email }
+      });
+      alert("Verification email resent!");
+    } catch (error) {
+      alert(error.response?.data || "Failed to resend verification email");
+    }
+  };
+
 
   const handleGoogleSignup = async (credentialResponse) => {
     try {
@@ -60,30 +104,48 @@ const Signup = () => {
           <p>Professional Video Editing</p>
         </div>
         <h2>Signup</h2>
-        <form onSubmit={handleSignup} className="auth-form">
+
+        {showVerificationMessage ? (
+          <div className="verification-message">
+            <p>We've sent a verification email to {email}</p>
+            <p>Please check your inbox and verify your email before logging in.</p>
+            <button onClick={resendVerification} className="auth-button">
+              Resend Verification Email
+            </button>
+            <p className="auth-link">
+              Already verified? <a href="/">Login</a>
+            </p>
+          </div>
+        ) : (
+          <>
+    <form onSubmit={handleSignup} className="auth-form">
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            required
-            className="auth-input"
+            className={`auth-input ${errors.email ? 'error' : ''}`}
           />
+          {errors.email && <div className="error-message">{errors.email}</div>}
+
           <input
             type="password"
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            required
-            className="auth-input"
+            className={`auth-input ${errors.password ? 'error' : ''}`}
           />
+          {errors.password && <div className="error-message">{errors.password}</div>}
+
           <button type="submit" className="auth-button">Sign Up</button>
         </form>
-        <div className="divider">OR</div>
-        <div id="googleSignUpButton" className="google-button"></div>
-        <p className="auth-link">
-          Already have an account? <a href="/">Login</a>
-        </p>
+            <div className="divider">OR</div>
+            <div id="googleSignUpButton" className="google-button"></div>
+            <p className="auth-link">
+              Already have an account? <a href="/">Login</a>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

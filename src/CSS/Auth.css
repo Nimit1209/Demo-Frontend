@@ -141,6 +141,45 @@
   text-decoration: underline;
 }
 
+.error-message {
+  color: #ff4444;
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.auth-input.error {
+  border-color: #ff4444;
+}
+
+/* Add to your CSS file */
+.verification-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  text-align: center;
+}
+
+.verification-message {
+  max-width: 500px;
+  padding: 2rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.verification-message h2 {
+  color: #2c3e50;
+  margin-bottom: 1rem;
+}
+
+.verification-message p {
+  color: #7f8c8d;
+  font-size: 1.1rem;
+}
+
+
 /* Fade-in animation */
 @keyframes fadeIn {
   from {
@@ -151,4 +190,5 @@
     opacity: 1;
     transform: translateY(0);
   }
+
 }
