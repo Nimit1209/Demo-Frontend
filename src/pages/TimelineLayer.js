@@ -12,16 +12,19 @@ const TimelineLayer = ({
   handleEditTextSegment,
   selectedSegmentId,
   transitions,
-  onTransitionSelect, // NEW: Prop to handle transition selection
+  onTransitionSelect,
 }) => {
   const isAudioLayer = layer.some((item) => item.type === 'audio');
 
-  // Function to get transition position, adjusted for the segment's startTime
-  const getTransitionPosition = (transition, segmentStartTime) => {
-    const startTime = transition.timelineStartTime || 0;
-    // Since the transition is inside the timeline-item, we need to offset its left position
-    // by subtracting the segment's startTime to make it absolute relative to the timeline
-    const relativeLeft = (startTime - segmentStartTime) * timeScale;
+  const getTransitionPosition = (transition, segmentStartTime, segmentDuration) => {
+    let relativeLeft;
+    if (transition.start && !transition.end) {
+      relativeLeft = 0;
+    } else if (transition.end && !transition.start) {
+      relativeLeft = (segmentDuration - transition.duration) * timeScale;
+    } else {
+      relativeLeft = 0;
+    }
     return {
       left: relativeLeft,
       width: transition.duration * timeScale,
@@ -51,9 +54,8 @@ const TimelineLayer = ({
           };
           const isSelected = item.id === selectedSegmentId;
 
-          // Find transitions related to this segment
           const itemTransitions = transitions.filter(
-            (t) => t.fromSegmentId === item.id || t.toSegmentId === item.id
+            (t) => t.segmentId === item.id && t.layer === layerIndex
           );
 
           return (
@@ -130,10 +132,10 @@ const TimelineLayer = ({
                   }}
                 />
               )}
-              {/* Render transitions */}
               {itemTransitions.map((transition) => {
-                const pos = getTransitionPosition(transition, item.startTime);
+                const pos = getTransitionPosition(transition, item.startTime, item.duration);
                 if (!pos) return null;
+                const isCrossDissolve = transition.type === 'CrossDissolve';
                 return (
                   <div
                     key={transition.id}
@@ -142,7 +144,9 @@ const TimelineLayer = ({
                       left: `${pos.left}px`,
                       width: `${pos.width}px`,
                       height: '20px',
-                      backgroundColor: 'rgba(0, 255, 255, 0.5)',
+                      background: isCrossDissolve
+                        ? 'linear-gradient(to right, rgba(0, 255, 255, 0.5), rgba(0, 255, 255, 0))'
+                        : 'rgba(0, 255, 255, 0.5)',
                       position: 'absolute',
                       top: '0',
                       zIndex: index + 100,
@@ -153,13 +157,12 @@ const TimelineLayer = ({
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onTransitionSelect(transition); // NEW: Select transition and open panel
+                      onTransitionSelect(transition);
                     }}
-                    onDragStart={(e) => e.preventDefault()} // Prevent dragging
-                    onMouseDown={(e) => e.stopPropagation()} // Prevent drag initiation on segment
+                    onDragStart={(e) => e.preventDefault()}
+                    onMouseDown={(e) => e.stopPropagation()}
                   >
                     <span className="transition-label">{transition.type}</span>
-                    {/* REMOVED: Resize handles */}
                   </div>
                 );
               })}

@@ -3,8 +3,6 @@ import '../CSS/VideoPreview.css';
 import fx from 'glfx';
 
 const API_BASE_URL = 'http://localhost:8080';
-
-// Add baseFontSize constant
 const baseFontSize = 24;
 
 const VideoPreview = ({
@@ -21,18 +19,17 @@ const VideoPreview = ({
   photos = [],
   transitions = [],
   fps = 25,
-  projectId,
+  onLoadedAudioSegmentsUpdate, // New prop to share loadedAudioSegments
 }) => {
   const [loadingVideos, setLoadingVideos] = useState(new Set());
-  const [loadingAudios, setLoadingAudios] = useState(new Set());
   const [preloadComplete, setPreloadComplete] = useState(false);
   const [scale, setScale] = useState(1);
+  const [loadedAudioSegments, setLoadedAudioSegments] = useState(new Set());
   const previewContainerRef = useRef(null);
   const videoRefs = useRef({});
-  const audioRefs = useRef({});
   const preloadRefs = useRef({});
+  const audioRefs = useRef({});
   const animationFrameRef = useRef(null);
-  const lastUpdateTimeRef = useRef(0);
   const glCanvasRef = useRef(null);
   const glTextureRefs = useRef({});
   const fxCanvasRef = useRef(null);
@@ -61,12 +58,172 @@ const VideoPreview = ({
     return defaultValue;
   };
 
+  // Initialize audio elements
   useEffect(() => {
-    // Debug audio elements
-    console.log("Visible audio elements:", getVisibleAudioElements());
-    console.log("Audio refs:", audioRefs.current);
-  }, [currentTime]);
+    console.log('Audio initialization useEffect triggered with audioLayers:', audioLayers);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error('No token found in localStorage for audio initialization');
+      return;
+    }
 
+    const promises = audioLayers.flat().map((segment) => {
+      console.log(`Processing audio segment ${segment.id}:`, segment);
+      if (!segment.url) {
+        console.warn(`No URL for audio segment ${segment.id}:`, segment);
+        return Promise.resolve();
+      }
+
+      if (audioRefs.current[segment.id]) {
+        console.log(`Audio element for ${segment.id} already exists`);
+        setLoadedAudioSegments((prev) => new Set(prev).add(segment.id));
+        return Promise.resolve();
+      }
+
+      console.log(`Creating audio element for segment ${segment.id}: ${segment.url}`);
+      const audio = new Audio();
+      audio.crossOrigin = 'anonymous';
+      audio.preload = 'auto';
+      audio.playbackRate = 1.0;
+
+      return fetch(segment.url, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((response) => {
+          console.log(`Fetch response for audio ${segment.id}:`, response.status, response.statusText);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch audio ${segment.url}: ${response.status} ${response.statusText}`);
+          }
+          return response.blob();
+        })
+        .then((blob) => {
+          const blobUrl = URL.createObjectURL(blob);
+          audio.src = blobUrl;
+          audioRefs.current[segment.id] = audio;
+          setLoadedAudioSegments((prev) => new Set(prev).add(segment.id));
+          console.log(`Audio ${segment.id} loaded with blob URL: ${blobUrl}`);
+          audio.addEventListener('loadeddata', () => {
+            console.log(`Audio ${segment.id} loadeddata event fired`);
+          });
+          audio.addEventListener('error', (e) => {
+            console.error(`Error loading audio ${segment.url}:`, e);
+          });
+        })
+        .catch((error) => {
+          console.error(`Error fetching audio ${segment.url}:`, error);
+        });
+    });
+
+    Promise.all(promises).then(() => {
+      console.log('Updated audioRefs:', Object.keys(audioRefs.current));
+    });
+
+    return () => {
+      console.log('Cleaning up audio elements');
+      Object.entries(audioRefs.current).forEach(([id, audio]) => {
+        audio.pause();
+        if (audio.src) {
+          URL.revokeObjectURL(audio.src);
+          audio.src = '';
+        }
+        delete audioRefs.current[id];
+        setLoadedAudioSegments((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(id);
+          return newSet;
+        });
+      });
+    };
+  }, [audioLayers]);
+
+  // Share loadedAudioSegments with parent
+  useEffect(() => {
+    if (onLoadedAudioSegmentsUpdate) {
+      onLoadedAudioSegmentsUpdate(loadedAudioSegments);
+    }
+  }, [loadedAudioSegments, onLoadedAudioSegmentsUpdate]);
+
+  // Synchronize audio playback
+  useEffect(() => {
+    console.log(`Playback state: isPlaying=${isPlaying}, currentTime=${currentTime}, loadedAudioSegments=`, Array.from(loadedAudioSegments));
+
+    // Pause all audio elements when not playing
+    if (!isPlaying) {
+      Object.values(audioRefs.current).forEach((audio) => {
+        if (!audio.paused) {
+          audio.pause();
+          console.log(`Paused audio ${audio.src}`);
+        }
+      });
+      return;
+    }
+
+    // Process audio playback when playing
+    audioLayers.forEach((layer) => {
+      layer.forEach((segment) => {
+        if (!loadedAudioSegments.has(segment.id)) {
+          console.log(`Audio ${segment.id} not yet loaded, skipping playback`);
+          return;
+        }
+
+        const audio = audioRefs.current[segment.id];
+        if (!audio) {
+          console.warn(`No audio element for segment ${segment.id}`);
+          return;
+        }
+
+        // Ensure playback rate is 1.0
+        audio.playbackRate = 1.0;
+
+        const startTime = segment.timelineStartTime || segment.startTime || 0;
+        const endTime = segment.timelineEndTime || startTime + (segment.duration || 0);
+        const startWithinAudio = segment.startTimeWithinAudio || 0;
+        const relativeTime = currentTime - startTime + startWithinAudio;
+
+        console.log(
+          `Audio ${segment.id}: start=${startTime}, end=${endTime}, relativeTime=${relativeTime}, duration=${segment.duration}, readyState=${audio.readyState}`
+        );
+
+        if (currentTime >= startTime && currentTime < endTime) {
+          // Only update currentTime if significantly out of sync (increased threshold to 0.5s)
+          if (Math.abs(audio.currentTime - relativeTime) > 0.5) {
+            audio.currentTime = relativeTime;
+            console.log(`Set audio ${segment.id} time to ${relativeTime}`);
+          }
+
+          // Attempt to play audio if paused and ready
+          if (audio.paused && audio.readyState >= 4) {
+            console.log(`Attempting to play audio ${segment.id}`);
+            audio
+              .play()
+              .then(() => console.log(`Audio ${segment.id} started playing`))
+              .catch((e) => {
+                console.error(`Error playing audio ${segment.id}:`, e);
+                if (e.name === 'NotAllowedError') {
+                  setIsPlaying(false);
+                  alert('Audio playback blocked. Please click the play button or interact with the page.');
+                }
+              });
+          }
+        } else {
+          // Pause audio if outside its playback window
+          if (!audio.paused) {
+            audio.pause();
+            console.log(`Paused audio ${segment.id}`);
+          }
+        }
+
+        // Apply volume with keyframe support
+        const volume = segment.keyframes?.volume
+          ? getKeyframeValue(segment.keyframes.volume, relativeTime - startWithinAudio, segment.volume || 1.0)
+          : segment.volume || 1.0;
+        audio.volume = Math.max(0, Math.min(1, volume));
+        console.log(`Set audio ${segment.id} volume to ${audio.volume}`);
+      });
+    });
+  }, [currentTime, isPlaying, audioLayers, loadedAudioSegments, setIsPlaying, getKeyframeValue]);
+
+  // Removed playback animation logic
   const computeTransitionEffects = (element, localTime) => {
     const relevantTransitions = transitions.filter(
       (t) =>
@@ -89,7 +246,13 @@ const VideoPreview = ({
       const progress = (currentTime - transition.timelineStartTime) / transition.duration;
       const parameters = transition.parameters || {};
 
-      if (transition.type === 'Slide') {
+      if (transition.type === 'Fade') {
+        if (transition.toSegmentId === element.id && transition.fromSegmentId === null) {
+          effects.opacity = lerp(0, 1, progress);
+        } else if (transition.fromSegmentId === element.id) {
+          effects.opacity = lerp(1, 0, progress);
+        }
+      } else if (transition.type === 'Slide') {
         const direction = parameters.direction || 'right';
         const canvasWidth = canvasDimensions.width;
         const canvasHeight = canvasDimensions.height;
@@ -115,6 +278,29 @@ const VideoPreview = ({
             effects.positionY = lerp(0, -canvasHeight, progress);
           }
         }
+      } else if (transition.type === 'Wipe') {
+        const direction = parameters.direction || 'left';
+        if (transition.toSegmentId === element.id) {
+          if (direction === 'left') {
+            effects.clipPath = `inset(0 calc((1 - ${progress}) * 100%) 0 0)`;
+          } else if (direction === 'right') {
+            effects.clipPath = `inset(0 0 0 calc((1 - ${progress}) * 100%))`;
+          } else if (direction === 'top') {
+            effects.clipPath = `inset(calc((1 - ${progress}) * 100%) 0 0 0)`;
+          } else if (direction === 'bottom') {
+            effects.clipPath = `inset(0 0 calc((1 - ${progress}) * 100%) 0)`;
+          }
+        } else if (transition.fromSegmentId === element.id) {
+          if (direction === 'left') {
+            effects.clipPath = `inset(0 calc(${progress} * 100%) 0 0)`;
+          } else if (direction === 'right') {
+            effects.clipPath = `inset(0 0 0 calc(${progress} * 100%))`;
+          } else if (direction === 'top') {
+            effects.clipPath = `inset(calc(${progress} * 100%) 0 0 0)`;
+          } else if (direction === 'bottom') {
+            effects.clipPath = `inset(0 0 calc(${progress} * 100%) 0)`;
+          }
+        }
       } else if (transition.type === 'Zoom') {
         const direction = parameters.direction || 'in';
         if (transition.toSegmentId === element.id) {
@@ -124,12 +310,38 @@ const VideoPreview = ({
         }
       } else if (transition.type === 'Rotate') {
         const direction = parameters.direction || 'clockwise';
-        const rotationSpeed = direction === 'clockwise' ? 720 : -720; // 720 deg/s
-        const angle = rotationSpeed * transition.duration; // Total angle for transition duration
+        const rotationSpeed = direction === 'clockwise' ? 720 : -720;
+        const angle = rotationSpeed * transition.duration;
         if (transition.toSegmentId === element.id) {
-          effects.rotate = lerp(angle, 0, progress); // From angle to 0
+          effects.rotate = lerp(angle, 0, progress);
         } else if (transition.fromSegmentId === element.id) {
-          effects.rotate = lerp(0, angle, progress); // From 0 to angle
+          effects.rotate = lerp(0, angle, progress);
+        }
+      } else if (transition.type === 'Push') {
+        const direction = parameters.direction || 'right';
+        const canvasWidth = canvasDimensions.width;
+        const canvasHeight = canvasDimensions.height;
+
+        if (transition.toSegmentId === element.id) {
+          if (direction === 'right') {
+            effects.positionX = lerp(-canvasWidth, 0, progress);
+          } else if (direction === 'left') {
+            effects.positionX = lerp(canvasWidth, 0, progress);
+          } else if (direction === 'top') {
+            effects.positionY = lerp(canvasHeight, 0, progress);
+          } else if (direction === 'bottom') {
+            effects.positionY = lerp(-canvasHeight, 0, progress);
+          }
+        } else if (transition.fromSegmentId === element.id) {
+          if (direction === 'right') {
+            effects.positionX = lerp(0, canvasWidth, progress);
+          } else if (direction === 'left') {
+            effects.positionX = lerp(0, -canvasWidth, progress);
+          } else if (direction === 'top') {
+            effects.positionY = lerp(0, -canvasHeight, progress);
+          } else if (direction === 'bottom') {
+            effects.positionY = lerp(0, canvasHeight, progress);
+          }
         }
       }
     }
@@ -183,14 +395,6 @@ const VideoPreview = ({
       .join('|');
   }, [videoLayers]);
 
-  const audioLayerIds = useMemo(() => {
-    return audioLayers
-      .flat()
-      .filter((item) => item.type === 'audio')
-      .map((item) => `${item.id}-${item.fileName}`)
-      .join('|');
-  }, [audioLayers]);
-
   useEffect(() => {
     try {
       fxCanvasRef.current = fx.canvas();
@@ -224,7 +428,7 @@ const VideoPreview = ({
           video.preload = 'auto';
           video.src = videoUrl;
           video.crossOrigin = 'anonymous';
-          video.muted = true; // Ensure preload video is muted
+          video.muted = true;
           video.style.display = 'none';
           document.body.appendChild(video);
           preloadRefs.current[item.id] = video;
@@ -256,61 +460,18 @@ const VideoPreview = ({
       });
 
       setLoadingVideos(new Set(allVideoItems.map((item) => item.id)));
-      return preloadPromises;
-    };
-
-    const preloadAudios = () => {
-      const allAudioItems = audioLayers.flat().filter((item) => item.type === 'audio');
-      const preloadPromises = allAudioItems.map((item) => {
-        const audioUrl = `${API_BASE_URL}/projects/{projectId}/audio/${encodeURIComponent(item.fileName)}`;
-
-        if (!preloadRefs.current[item.id]) {
-          const audio = document.createElement('audio');
-          audio.crossOrigin = 'anonymous';
-          audio.preload = 'auto';
-          audio.muted = false;
-          audio.src = audioUrl;
-          audio.style.display = 'none';
-          document.body.appendChild(audio);
-          preloadRefs.current[item.id] = audio;
-          audio.src = audioUrl; // Set src after appending
-          audio.load(); // Explicitly load to initialize
-
-          console.log(`Preloading audio: ${item.fileName}, URL: ${audioUrl}`);
-
-          return new Promise((resolve) => {
-            audio.onloadeddata = () => {
-              setLoadingAudios((prev) => {
-                const newSet = new Set(prev);
-                newSet.delete(item.id);
-                return newSet;
-              });
-              resolve();
-            };
-            audio.onerror = () => {
-              console.error(`Failed to preload audio ${item.fileName}`);
-              resolve();
-            };
-          });
-        }
-        return Promise.resolve();
+      Promise.all(preloadPromises).then(() => {
+        setPreloadComplete(true);
+        console.log('All videos preloaded');
       });
-
-      setLoadingAudios(new Set(allAudioItems.map((item) => item.id)));
-      return preloadPromises;
     };
 
-    Promise.all([...preloadVideos(), ...preloadAudios()]).then(() => {
-      setPreloadComplete(true);
-      console.log('All videos and audios preloaded');
-    });
+    preloadVideos();
 
     return () => {
-      Object.values(preloadRefs.current).forEach((element) => {
-        if (element.tagName === 'VIDEO' || element.tagName === 'AUDIO') {
-          element.pause();
-          document.body.removeChild(element);
-        }
+      Object.values(preloadRefs.current).forEach((video) => {
+        video.pause();
+        document.body.removeChild(video);
       });
       Object.values(glTextureRefs.current).forEach((texture) => {
         try {
@@ -322,7 +483,7 @@ const VideoPreview = ({
       preloadRefs.current = {};
       glTextureRefs.current = {};
     };
-  }, [videoLayerIds, audioLayerIds]);
+  }, [videoLayerIds]);
 
   useEffect(() => {
     const preloadImages = () => {
@@ -354,9 +515,6 @@ const VideoPreview = ({
 
   useEffect(() => {
     const visibleElements = getVisibleElements();
-    const visibleAudioElements = getVisibleAudioElements();
-
-    // Handle video playback
     const setVideoTimeFunctions = new Map();
 
     visibleElements.forEach((element) => {
@@ -388,11 +546,8 @@ const VideoPreview = ({
             videoRef.addEventListener('loadeddata', setVideoTime, { once: true });
           }
 
-          // Ensure all videos are muted
-          videoRef.muted = true;
-
           if (isPlaying && preloadComplete) {
-            videoRef.play().catch((error) => console.error('Video playback error:', error));
+            videoRef.play().catch((error) => console.error('Playback error:', error));
           } else {
             videoRef.pause();
           }
@@ -400,77 +555,10 @@ const VideoPreview = ({
       }
     });
 
-    // Handle audio playback
-    const setAudioTimeFunctions = new Map();
-
-    visibleAudioElements.forEach((element) => {
-      const audioRef = audioRefs.current[element.id];
-      if (audioRef) {
-        const audioUrl = `${API_BASE_URL}/projects/{projectId}/audio/${encodeURIComponent(element.fileName)}`;
-
-        if (!audioRef.src) {
-          audioRef.src = audioUrl;
-          audioRef.crossOrigin = 'anonymous';
-          audioRef.muted = false;
-          audioRef.load();
-          console.log(`Initialized audio ${element.fileName} with src ${audioUrl}`);
-        }
-
-        const setAudioTime = () => {
-          const targetTime = element.localTime + (element.startTimeWithinAudio || 0);
-          if (Math.abs(audioRef.currentTime - targetTime) > 0.05) {
-            audioRef.currentTime = targetTime;
-            console.log(`Set audio ${element.fileName} to time ${targetTime}`);
-          }
-        };
-        setAudioTimeFunctions.set(element.id, setAudioTime);
-
-        if (audioRef.readyState >= 2) {
-          setAudioTime();
-        } else {
-          audioRef.addEventListener('loadeddata', () => {
-            setAudioTime();
-            console.log(`Audio ${element.fileName} loadeddata, readyState: ${audioRef.readyState}`);
-          }, { once: true });
-        }
-
-        // Apply volume from keyframes or default
-        const volume = getKeyframeValue(
-          element.keyframes && element.keyframes.volume,
-          element.localTime,
-          element.volume || 1.0
-        );
-        audioRef.volume = Math.max(0, Math.min(1, volume));
-        console.log(`Set audio ${element.fileName} volume to ${volume}`);
-
-        if (isPlaying && preloadComplete) {
-          audioRef.play()
-            .then(() => console.log(`Audio ${element.fileName} started playing`))
-            .catch((error) => console.error(`Audio playback error for ${element.fileName}:`, error));
-        } else {
-          audioRef.pause();
-          console.log(`Audio ${element.fileName} paused (isPlaying: ${isPlaying}, preloadComplete: ${preloadComplete})`);
-        }
-      } else {
-        console.warn(`No audioRef found for element ID ${element.id}`);
-      }
-    });
-
-    // Pause non-visible videos
     const visibleIds = visibleElements.map((el) => el.id);
     Object.entries(videoRefs.current).forEach(([id, videoRef]) => {
       if (!visibleIds.includes(id) && videoRef) {
         videoRef.pause();
-        videoRef.muted = true;
-      }
-    });
-
-    // Pause non-visible audios
-    const visibleAudioIds = visibleAudioElements.map((el) => el.id);
-    Object.entries(audioRefs.current).forEach(([id, audioRef]) => {
-      if (!visibleAudioIds.includes(id) && audioRef) {
-        audioRef.pause();
-        console.log(`Paused non-visible audio ID ${id}`);
       }
     });
 
@@ -481,51 +569,8 @@ const VideoPreview = ({
           videoRef.removeEventListener('loadeddata', setVideoTime);
         }
       });
-      setAudioTimeFunctions.forEach((setAudioTime, id) => {
-        const audioRef = audioRefs.current[id];
-        if (audioRef) {
-          audioRef.removeEventListener('loadeddata', setAudioTime);
-        }
-      });
     };
-  }, [currentTime, isPlaying, videoLayers, audioLayers, preloadComplete]);
-
-  useEffect(() => {
-    const frameDuration = 1 / fps; // Duration of one frame in seconds
-
-    const updatePlayhead = (timestamp) => {
-      if (isPlaying) {
-        if (!lastUpdateTimeRef.current) {
-          lastUpdateTimeRef.current = timestamp;
-        }
-        const deltaMs = timestamp - lastUpdateTimeRef.current;
-        const framesElapsed = Math.floor(deltaMs / (1000 / fps)); // Number of frames based on FPS
-        const deltaTime = framesElapsed * frameDuration; // Time advanced in seconds
-        lastUpdateTimeRef.current = timestamp - (deltaMs % (1000 / fps)); // Align to frame boundary
-
-        const newTime = Math.min(totalDuration, currentTime + deltaTime);
-        onTimeUpdate(newTime);
-        if (newTime >= totalDuration) {
-          if (setIsPlaying) setIsPlaying(false);
-          onTimeUpdate(0);
-        }
-      } else {
-        lastUpdateTimeRef.current = timestamp; // Reset timestamp when paused
-      }
-      animationFrameRef.current = requestAnimationFrame(updatePlayhead);
-    };
-
-    if (isPlaying) {
-      lastUpdateTimeRef.current = null; // Reset on play
-      animationFrameRef.current = requestAnimationFrame(updatePlayhead);
-    }
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [isPlaying, currentTime, onTimeUpdate, totalDuration, setIsPlaying, fps]);
+  }, [currentTime, isPlaying, videoLayers, preloadComplete]);
 
   useEffect(() => {
     if (previewContainerRef.current) {
@@ -587,24 +632,6 @@ const VideoPreview = ({
     return visibleElements.sort((a, b) => a.layerIndex - b.layerIndex);
   };
 
-  const getVisibleAudioElements = () => {
-    const visibleAudioElements = [];
-    audioLayers.forEach((layer, layerIndex) => {
-      layer.forEach((item) => {
-        const itemStartTime = item.startTime || 0;
-        const itemEndTime = itemStartTime + item.duration;
-        if (currentTime >= itemStartTime && currentTime < itemEndTime) {
-          visibleAudioElements.push({
-            ...item,
-            layerIndex,
-            localTime: currentTime - itemStartTime,
-          });
-        }
-      });
-    });
-    return visibleAudioElements;
-  };
-
   const applyWebGLFilters = (element, sourceElement) => {
     return sourceElement;
   };
@@ -657,7 +684,10 @@ const VideoPreview = ({
             const transitionScale = transitionEffects.scale;
             const transitionRotate = transitionEffects.rotate;
 
-            const { css: filterStyle, webgl: webglFilters } = computeFilterStyle(element.filters, element.localTime);
+            const { css: filterStyle, webgl: webglFilters } = computeFilterStyle(
+              element.filters,
+              element.localTime
+            );
 
             let transform = '';
             const rotateFilter = element.filters?.find((f) => f.filterName === 'rotate');
@@ -694,7 +724,7 @@ const VideoPreview = ({
                   <video
                     ref={(el) => (videoRefs.current[element.id] = el)}
                     className="preview-video"
-                    muted={true} // Always mute video elements
+                    muted={true}
                     crossOrigin="anonymous"
                     style={{
                       position: 'absolute',
@@ -760,6 +790,11 @@ const VideoPreview = ({
                 filePath: element.filePath,
               };
 
+              // Ensure filters is an array
+              const safeFilters = Array.isArray(element.filters) ? element.filters : [];
+              const rotateFilter = safeFilters.find((f) => f.filterName === 'rotate');
+              const flipFilter = safeFilters.find((f) => f.filterName === 'flip');
+
               return (
                 <React.Fragment key={element.id}>
                   <img
@@ -816,11 +851,58 @@ const VideoPreview = ({
               );
             } else if (element.type === 'text') {
               const fontSize = baseFontSize * scaleFactor;
-              const textWidth = element.text.length * fontSize * 0.6;
-              const textHeight = fontSize * 1.2;
 
-              const posX = (canvasDimensions.width - textWidth) / 2 + positionX + transitionPosX;
-              const posY = (canvasDimensions.height - textHeight) / 2 + positionY + transitionPosY;
+              // Define resolution multiplier based on canvas width (same as backend)
+              const resolutionMultiplier = canvasDimensions.width >= 3840 ? 1.5 : 2.0;
+
+              // Calculate adjusted font size to match backend
+              const adjustedFontSize = fontSize * resolutionMultiplier;
+
+              // Get the base position (center point)
+              const centerX = canvasDimensions.width / 2 + positionX + transitionPosX;
+              const centerY = canvasDimensions.height / 2 + positionY + transitionPosY;
+
+              // Compute background styles
+              const bgPadding = (element.backgroundPadding || 0) * scaleFactor * resolutionMultiplier;
+              const borderWidth = (element.backgroundBorderWidth || 0) * scaleFactor * resolutionMultiplier;
+              const bgOpacity = element.backgroundOpacity !== undefined ? element.backgroundOpacity : 1.0;
+              let bgColorStyle = 'transparent';
+
+              if (element.backgroundColor && element.backgroundColor !== 'transparent') {
+                if (element.backgroundColor.startsWith('#')) {
+                  // Convert hex to RGBA
+                  const hex = element.backgroundColor.replace('#', '');
+                  const r = parseInt(hex.substring(0, 2), 16);
+                  const g = parseInt(hex.substring(2, 4), 16);
+                  const b = parseInt(hex.substring(4, 6), 16);
+                  bgColorStyle = `rgba(${r}, ${g}, ${b}, ${bgOpacity})`;
+                } else {
+                  bgColorStyle = element.backgroundColor;
+                }
+              }
+
+              // Calculate border radius with better proportional scaling
+              const baseRadius = element.backgroundBorderRadius || 0;
+              const correctionFactor = 0.55; // Keep existing correction factor
+              const bgBorderRadius = baseRadius * scaleFactor * resolutionMultiplier * correctionFactor;
+
+              const borderColor = element.backgroundBorderColor && element.backgroundBorderColor !== 'transparent'
+                ? element.backgroundBorderColor
+                : 'transparent';
+
+              // Calculate a rough estimate of the text dimensions
+              const textLines = element.text.split('\n');
+              const lineHeight = adjustedFontSize * 1.2;
+              const textHeight = textLines.length * lineHeight;
+              const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, '');
+              const approxTextWidth = longestLine.length * adjustedFontSize * 0.6;
+
+              // Adjust border radius to be proportional to content size
+              const contentWidth = approxTextWidth + (bgPadding * 2);
+              const contentHeight = textHeight + (bgPadding * 2);
+              const minDimension = Math.min(contentWidth, contentHeight);
+              const maxRadius = minDimension / 2;
+              const effectiveBorderRadius = Math.min(bgBorderRadius, maxRadius);
 
               return (
                 <div
@@ -828,22 +910,28 @@ const VideoPreview = ({
                   className="preview-text"
                   style={{
                     position: 'absolute',
-                    left: `${posX}px`,
-                    top: `${posY}px`,
+                    left: `${centerX}px`,
+                    top: `${centerY}px`,
                     fontFamily: element.fontFamily || 'Arial',
-                    fontSize: `${fontSize}px`,
+                    fontSize: `${adjustedFontSize}px`, // Use adjusted font size
                     color: element.fontColor || '#FFFFFF',
-                    backgroundColor: element.backgroundColor
-                      ? `${element.backgroundColor}${element.backgroundColor.startsWith('#') ? '80' : ''}`
-                      : 'transparent',
-                    padding: `${5 * scale}px`,
+                    background: bgColorStyle,
+                    padding: `${bgPadding}px`,
+                    borderRadius: `${effectiveBorderRadius}px`,
+                    borderWidth: `${borderWidth}px`,
+                    borderStyle: borderWidth > 0 ? 'solid' : 'none',
+                    borderColor: borderColor,
                     zIndex: element.layerIndex + 10,
                     whiteSpace: 'pre-wrap',
-                    textAlign: 'center',
                     opacity,
                     filter: filterStyle,
-                    transform: transform.trim(),
+                    transform: `translate(-50%, -50%) ${transform.trim()}`,
+                    transformOrigin: 'center',
                     clipPath,
+                    display: 'inline-block',
+                    textAlign: element.alignment || 'center',
+                    boxSizing: 'content-box',
+                    maxWidth: `${canvasDimensions.width * 0.8}px`,
                   }}
                 >
                   {element.text}
@@ -852,23 +940,11 @@ const VideoPreview = ({
             }
             return null;
           })}
-          {/* Audio elements for playback */}
-          {getVisibleAudioElements().map((element) => (
-            <audio
-              key={element.id}
-              ref={(el) => (audioRefs.current[element.id] = el)}
-              preload="auto"
-              crossOrigin="anonymous"
-              muted={false}
-              onError={(e) => console.error(`Error loading audio ${element.fileName}:`, e)}
-              onLoadedData={() => console.log(`Audio ${element.fileName} loaded`)}
-            />
-          ))}
         </div>
 
         {visibleElements.length === 0 && <div className="preview-empty-state"></div>}
 
-        {(loadingVideos.size > 0 || loadingAudios.size > 0) && (
+        {loadingVideos.size > 0 && (
           <div className="preview-loading">
             <div className="preview-spinner"></div>
           </div>

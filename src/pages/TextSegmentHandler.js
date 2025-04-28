@@ -39,12 +39,6 @@ const TextSegmentHandler = ({
           backgroundBorderColor: updatedTextSettings.backgroundBorderColor || '#000000',
           backgroundPadding: updatedTextSettings.backgroundPadding ?? 0,
           backgroundBorderRadius: updatedTextSettings.backgroundBorderRadius ?? 0, // New
-          shadowColor: updatedTextSettings.shadowColor || 'transparent',
-          shadowOffsetX: updatedTextSettings.shadowOffsetX ?? 0,
-          shadowOffsetY: updatedTextSettings.shadowOffsetY ?? 0,
-          shadowBlurRadius: updatedTextSettings.shadowBlurRadius ?? 0, // New
-          shadowSpread: updatedTextSettings.shadowSpread ?? 0, // New
-          shadowOpacity: updatedTextSettings.shadowOpacity ?? 1.0, // New
         },
         {
           params: { sessionId },
@@ -76,12 +70,6 @@ const TextSegmentHandler = ({
         backgroundBorderColor: updatedTextSettings.backgroundBorderColor || '#000000',
         backgroundPadding: updatedTextSettings.backgroundPadding ?? 0,
         backgroundBorderRadius: updatedTextSettings.backgroundBorderRadius ?? 0, // New
-        shadowColor: updatedTextSettings.shadowColor || 'transparent',
-        shadowOffsetX: updatedTextSettings.shadowOffsetX ?? 0,
-        shadowOffsetY: updatedTextSettings.shadowOffsetY ?? 0,
-        shadowBlurRadius: updatedTextSettings.shadowBlurRadius ?? 0, // New
-        shadowSpread: updatedTextSettings.shadowSpread ?? 0, // New
-        shadowOpacity: updatedTextSettings.shadowOpacity ?? 1.0, // New
       };
       // Only include keyframes if explicitly provided (e.g., from Transform panel)
       if (updatedTextSettings.keyframes) {
@@ -133,12 +121,6 @@ const TextSegmentHandler = ({
             backgroundBorderColor: '#000000',
             backgroundPadding: 0,
             backgroundBorderRadius: 0, // New
-            shadowColor: 'transparent',
-            shadowOffsetX: 0,
-            shadowOffsetY: 0,
-            shadowBlurRadius: 0, // New
-            shadowSpread: 0, // New
-            shadowOpacity: 1.0, // New
           };
         }
       }
@@ -185,12 +167,6 @@ const TextSegmentHandler = ({
       backgroundBorderColor: draggingItem.backgroundBorderColor || '#000000',
       backgroundPadding: draggingItem.backgroundPadding ?? 0,
       backgroundBorderRadius: draggingItem.backgroundBorderRadius ?? 0, // New
-      shadowColor: draggingItem.shadowColor || 'transparent',
-      shadowOffsetX: draggingItem.shadowOffsetX ?? 0,
-      shadowOffsetY: draggingItem.shadowOffsetY ?? 0,
-      shadowBlurRadius: draggingItem.shadowBlurRadius ?? 0, // New
-      shadowSpread: draggingItem.shadowSpread ?? 0, // New
-      shadowOpacity: draggingItem.shadowOpacity ?? 1.0, // New
     };
     newVideoLayers[actualLayerIndex].push(updatedItem);
     setVideoLayers(newVideoLayers);
@@ -229,12 +205,6 @@ const TextSegmentHandler = ({
         backgroundBorderColor: updatedTextSettings.backgroundBorderColor || '#000000',
         backgroundPadding: updatedTextSettings.backgroundPadding ?? 0,
         backgroundBorderRadius: updatedTextSettings.backgroundBorderRadius ?? 0, // New
-        shadowColor: updatedTextSettings.shadowColor || 'transparent',
-        shadowOffsetX: updatedTextSettings.shadowOffsetX ?? 0,
-        shadowOffsetY: updatedTextSettings.shadowOffsetY ?? 0,
-        shadowBlurRadius: updatedTextSettings.shadowBlurRadius ?? 0, // New
-        shadowSpread: updatedTextSettings.shadowSpread ?? 0, // New
-        shadowOpacity: updatedTextSettings.shadowOpacity ?? 1.0, // New
         timelineStartTime: roundToThreeDecimals(startTime),
         timelineEndTime: roundToThreeDecimals(startTime + duration),
       };
@@ -270,12 +240,6 @@ const TextSegmentHandler = ({
                 backgroundBorderColor: updatedTextSettings.backgroundBorderColor || '#000000',
                 backgroundPadding: updatedTextSettings.backgroundPadding ?? 0,
                 backgroundBorderRadius: updatedTextSettings.backgroundBorderRadius ?? 0, // New
-                shadowColor: updatedTextSettings.shadowColor || 'transparent',
-                shadowOffsetX: updatedTextSettings.shadowOffsetX ?? 0,
-                shadowOffsetY: updatedTextSettings.shadowOffsetY ?? 0,
-                shadowBlurRadius: updatedTextSettings.shadowBlurRadius ?? 0, // New
-                shadowSpread: updatedTextSettings.shadowSpread ?? 0, // New
-                shadowOpacity: updatedTextSettings.shadowOpacity ?? 1.0, // New
                 duration,
                 timelineEndTime: roundToThreeDecimals(item.startTime + duration),
               }
@@ -309,12 +273,6 @@ const TextSegmentHandler = ({
       backgroundBorderColor: item.backgroundBorderColor || '#000000',
       backgroundPadding: item.backgroundPadding ?? 0,
       backgroundBorderRadius: item.backgroundBorderRadius ?? 0, // New
-      shadowColor: item.shadowColor || 'transparent',
-      shadowOffsetX: item.shadowOffsetX ?? 0,
-      shadowOffsetY: item.shadowOffsetY ?? 0,
-      shadowBlurRadius: item.shadowBlurRadius ?? 0, // New
-      shadowSpread: item.shadowSpread ?? 0, // New
-      shadowOpacity: item.shadowOpacity ?? 1.0, // New
     };
     layer[itemIndex] = firstPart;
 
@@ -332,12 +290,6 @@ const TextSegmentHandler = ({
       backgroundBorderColor: item.backgroundBorderColor || '#000000',
       backgroundPadding: item.backgroundPadding ?? 0,
       backgroundBorderRadius: item.backgroundBorderRadius ?? 0, // New
-      shadowColor: item.shadowColor || 'transparent',
-      shadowOffsetX: item.shadowOffsetX ?? 0,
-      shadowOffsetY: item.shadowOffsetY ?? 0,
-      shadowBlurRadius: item.shadowBlurRadius ?? 0, // New
-      shadowSpread: item.shadowSpread ?? 0, // New
-      shadowOpacity: item.shadowOpacity ?? 1.0, // New
     };
     layer.push(secondPart);
 
@@ -356,12 +308,6 @@ const TextSegmentHandler = ({
       backgroundBorderColor: secondPart.backgroundBorderColor,
       backgroundPadding: secondPart.backgroundPadding,
       backgroundBorderRadius: secondPart.backgroundBorderRadius, // New
-      shadowColor: secondPart.shadowColor,
-      shadowOffsetX: secondPart.shadowOffsetX,
-      shadowOffsetY: secondPart.shadowOffsetY,
-      shadowBlurRadius: secondPart.shadowBlurRadius, // New
-      shadowSpread: secondPart.shadowSpread, // New
-      shadowOpacity: secondPart.shadowOpacity, // New
     });
     autoSave(newVideoLayers, []);
     await loadProjectTimeline();

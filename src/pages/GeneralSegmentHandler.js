@@ -26,14 +26,19 @@ const GeneralSegmentHandler = ({
   updateTextSegment,
   updateImageSegment,
   updateAudioSegment,
-  fetchVideoDuration, // Add new prop
+  fetchVideoDuration,
 }) => {
-  // Cache video durations
   const durationCache = useRef(new Map());
 
   const handleDragStart = (e, item, layerIndex) => {
     if (isSplitMode) return;
-    setDraggingItem(item);
+    // Store original startTime to revert if needed
+    const itemWithOriginal = {
+      ...item,
+      originalStartTime: item.startTime,
+      isValidPosition: true, // Track if the current drag position is valid
+    };
+    setDraggingItem(itemWithOriginal);
     setDragLayer(item.layer);
     const rect = e.currentTarget.getBoundingClientRect();
     const offsetX = e.clientX - rect.left;
@@ -68,10 +73,18 @@ const GeneralSegmentHandler = ({
 
     const newSnapIndicators = [];
     const snapPoints = [];
+    const isAudioLayer = draggingItem.layer < 0;
+    const currentLayerIndex = isAudioLayer
+      ? Math.abs(draggingItem.layer) - 1
+      : draggingItem.layer;
+    const currentLayer = isAudioLayer
+      ? audioLayers[currentLayerIndex]
+      : videoLayers[currentLayerIndex];
 
+    // Collect snap points from all layers
     [...videoLayers, ...audioLayers].forEach((layer, layerIdx) => {
-      const isAudioLayer = layerIdx >= videoLayers.length;
-      const adjustedLayerIdx = isAudioLayer ? -(layerIdx - videoLayers.length + 1) : layerIdx;
+      const isAudio = layerIdx >= videoLayers.length;
+      const adjustedLayerIdx = isAudio ? -(layerIdx - videoLayers.length + 1) : layerIdx;
       layer.forEach(item => {
         if (item.id === draggingItem.id) return;
         snapPoints.push({ time: item.startTime, layerIdx: adjustedLayerIdx, type: 'start' });
@@ -81,49 +94,111 @@ const GeneralSegmentHandler = ({
 
     snapPoints.push({ time: 0, layerIdx: dragLayer, type: 'timelineStart' });
 
-    let closestSnapPoint = null;
-    let minDistance = SNAP_THRESHOLD;
+    // Check for overlaps within the same layer
+    let isValidPosition = true;
+    if (currentLayer) {
+      for (const item of currentLayer) {
+        if (item.id === draggingItem.id) continue;
+        const itemStart = item.startTime;
+        const itemEnd = item.startTime + item.duration;
+        const segmentStart = potentialStartTime;
+        const segmentEnd = potentialStartTime + draggingItem.duration;
 
-    snapPoints.forEach(point => {
-      const currentThreshold = point.time === 0 ? SNAP_THRESHOLD * 2 : SNAP_THRESHOLD;
+        // Check if the dragged segment overlaps with this item
+        if (segmentStart < itemEnd && segmentEnd > itemStart) {
+          isValidPosition = false;
+          break;
+        }
+      }
+    }
 
-      const distanceToStart = Math.abs(point.time - potentialStartTime);
-      if (distanceToStart < currentThreshold && distanceToStart < minDistance) {
-        minDistance = distanceToStart;
-        closestSnapPoint = { time: point.time, layerIdx: point.layerIdx, type: point.type, edge: 'start' };
+    // If position is invalid, revert to original startTime
+    if (!isValidPosition) {
+      potentialStartTime = draggingItem.originalStartTime;
+    } else {
+      // Apply collision boundaries only if valid
+      let maxLeftBound = -Infinity;
+      let minRightBound = Infinity;
+      if (currentLayer) {
+        currentLayer.forEach(item => {
+          if (item.id === draggingItem.id) return;
+          const itemStart = item.startTime;
+          const itemEnd = item.startTime + item.duration;
+          if (itemEnd <= potentialStartTime && itemEnd > maxLeftBound) {
+            maxLeftBound = itemEnd;
+          }
+          if (itemStart >= potentialStartTime + draggingItem.duration && itemStart < minRightBound) {
+            minRightBound = itemStart;
+          }
+        });
       }
 
-      const itemEndTime = potentialStartTime + draggingItem.duration;
-      const distanceToEnd = Math.abs(point.time - itemEndTime);
-      if (distanceToEnd < currentThreshold && distanceToEnd < minDistance) {
-        minDistance = distanceToEnd;
-        closestSnapPoint = { time: point.time - draggingItem.duration, layerIdx: point.layerIdx, type: point.type, edge: 'end' };
+      if (potentialStartTime < maxLeftBound) {
+        potentialStartTime = maxLeftBound;
       }
-    });
+      if (potentialStartTime + draggingItem.duration > minRightBound) {
+        potentialStartTime = minRightBound - draggingItem.duration;
+      }
+      potentialStartTime = Math.max(0, potentialStartTime);
 
-    if (closestSnapPoint) {
-      potentialStartTime = closestSnapPoint.time;
-      newSnapIndicators.push({
-        time: closestSnapPoint.edge === 'start' ? potentialStartTime : potentialStartTime + draggingItem.duration,
-        layerIdx: dragLayer,
-        edge: closestSnapPoint.edge,
+      // Snapping logic
+      let closestSnapPoint = null;
+      let minDistance = SNAP_THRESHOLD;
+
+      snapPoints.forEach(point => {
+        const currentThreshold = point.time === 0 ? SNAP_THRESHOLD * 2 : SNAP_THRESHOLD;
+
+        const distanceToStart = Math.abs(point.time - potentialStartTime);
+        if (distanceToStart < currentThreshold && distanceToStart < minDistance) {
+          minDistance = distanceToStart;
+          closestSnapPoint = { time: point.time, layerIdx: point.layerIdx, type: point.type, edge: 'start' };
+        }
+
+        const itemEndTime = potentialStartTime + draggingItem.duration;
+        const distanceToEnd = Math.abs(point.time - itemEndTime);
+        if (distanceToEnd < currentThreshold && distanceToEnd < minDistance) {
+          minDistance = distanceToEnd;
+          closestSnapPoint = { time: point.time - draggingItem.duration, layerIdx: point.layerIdx, type: point.type, edge: 'end' };
+        }
       });
+
+      if (closestSnapPoint) {
+        let snappedStartTime = closestSnapPoint.time;
+        if (snappedStartTime < maxLeftBound) {
+          snappedStartTime = maxLeftBound;
+        }
+        if (snappedStartTime + draggingItem.duration > minRightBound) {
+          snappedStartTime = minRightBound - draggingItem.duration;
+        }
+        potentialStartTime = Math.max(0, snappedStartTime);
+        newSnapIndicators.push({
+          time: closestSnapPoint.edge === 'start' ? potentialStartTime : potentialStartTime + draggingItem.duration,
+          layerIdx: dragLayer,
+          edge: closestSnapPoint.edge,
+        });
+      }
     }
 
     setSnapIndicators(newSnapIndicators);
 
+    // Update the dragged element's position
     const draggedElement = document.querySelector('.timeline-item.dragging');
     if (draggedElement) {
       draggedElement.style.left = `${potentialStartTime * timeScale}px`;
-      draggedElement.classList.toggle('snapping', newSnapIndicators.length > 0);
+      draggedElement.classList.toggle('snapping', newSnapIndicators.length > 0 && isValidPosition);
+      draggedElement.classList.toggle('invalid', !isValidPosition);
     }
+
+    // Store the position and validity
+    draggingItem.tempStartTime = potentialStartTime;
+    draggingItem.isValidPosition = isValidPosition;
   };
 
   const handleDragEnd = () => {
     if (!draggingItem) return;
     setSnapIndicators([]);
     const dragElements = document.querySelectorAll('.dragging');
-    dragElements.forEach(el => el.classList.remove('dragging'));
+    dragElements.forEach(el => el.classList.remove('dragging', 'invalid'));
     if (timelineRef.current) {
       timelineRef.current.classList.remove('showing-new-layer');
     }
@@ -227,18 +302,14 @@ const GeneralSegmentHandler = ({
         if (item.type === 'video' || item.type === 'audio') {
           newStartWithin = originalStartWithin;
           newEndWithin = originalStartWithin + newDuration;
-          // Prevent endTimeWithinVideo from exceeding source video duration
           if (item.type === 'video') {
-            // Check cached duration
             let sourceDuration = durationCache.current.get(item.filePath);
             if (sourceDuration === undefined) {
-              // Fetch duration and cache it
               fetchVideoDuration(item.filePath).then((duration) => {
                 if (duration !== null) {
                   durationCache.current.set(item.filePath, duration);
                 }
               });
-              // Use item.duration as fallback for this resize operation
               sourceDuration = item.duration;
             }
             if (newEndWithin > sourceDuration) {
@@ -250,7 +321,6 @@ const GeneralSegmentHandler = ({
         }
       }
 
-      // Update item properties
       item.startTime = newStartTime;
       item.duration = newDuration;
       item.timelineStartTime = newStartTime;
@@ -280,7 +350,7 @@ const GeneralSegmentHandler = ({
       timeScale,
       setVideoLayers,
       setAudioLayers,
-      fetchVideoDuration, // Add to dependencies
+      fetchVideoDuration,
     ]
   );
 
