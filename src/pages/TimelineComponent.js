@@ -60,7 +60,7 @@ const TimelineComponent = ({
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [isSplitMode, setIsSplitMode] = useState(false);
 
-  const SNAP_THRESHOLD = 0.1;
+  const SNAP_THRESHOLD = 0.5;
   const API_BASE_URL = 'http://localhost:8080';
   const MIN_TIME_SCALE = 0.1;
   const MAX_TIME_SCALE = 200;
@@ -496,7 +496,7 @@ const TimelineComponent = ({
     updateImageSegment: imageHandler.updateImageSegment,
     updateAudioSegment: audioHandler.updateAudioSegment,
     fetchVideoDuration: videoHandler.fetchVideoDuration,
-    roundToThreeDecimals
+    currentTime
   });
 
   useEffect(() => {

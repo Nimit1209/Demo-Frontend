@@ -61,6 +61,7 @@ const TimelineLayer = ({
           return (
             <div
               key={item.id}
+              data-id={item.id} // Added data-id attribute
               className={`timeline-item ${
                 item.type === 'text'
                   ? 'text-segment'

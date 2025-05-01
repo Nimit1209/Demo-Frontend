@@ -223,11 +223,10 @@ const VideoPreview = ({
     });
   }, [currentTime, isPlaying, audioLayers, loadedAudioSegments, setIsPlaying, getKeyframeValue]);
 
-  // Removed playback animation logic
   const computeTransitionEffects = (element, localTime) => {
     const relevantTransitions = transitions.filter(
       (t) =>
-        (t.toSegmentId === element.id || t.fromSegmentId === element.id) &&
+        t.segmentId === element.id &&
         element.layer === t.layer &&
         currentTime >= t.timelineStartTime &&
         currentTime <= t.timelineStartTime + t.duration
@@ -246,18 +245,23 @@ const VideoPreview = ({
       const progress = (currentTime - transition.timelineStartTime) / transition.duration;
       const parameters = transition.parameters || {};
 
+      // Determine if this is an incoming or outgoing transition
+      const isIncoming = transition.start; // Transition at segment start
+      const isOutgoing = transition.end;  // Transition at segment end
+
       if (transition.type === 'Fade') {
-        if (transition.toSegmentId === element.id && transition.fromSegmentId === null) {
-          effects.opacity = lerp(0, 1, progress);
-        } else if (transition.fromSegmentId === element.id) {
-          effects.opacity = lerp(1, 0, progress);
+        if (isIncoming) {
+          effects.opacity = lerp(0, 1, progress); // Fade in
+        } else if (isOutgoing) {
+          effects.opacity = lerp(1, 0, progress); // Fade out
         }
       } else if (transition.type === 'Slide') {
         const direction = parameters.direction || 'right';
         const canvasWidth = canvasDimensions.width;
         const canvasHeight = canvasDimensions.height;
 
-        if (transition.toSegmentId === element.id) {
+        if (isIncoming) {
+          // Slide in
           if (direction === 'right') {
             effects.positionX = lerp(canvasWidth, 0, progress);
           } else if (direction === 'left') {
@@ -267,7 +271,8 @@ const VideoPreview = ({
           } else if (direction === 'bottom') {
             effects.positionY = lerp(canvasHeight, 0, progress);
           }
-        } else if (transition.fromSegmentId === element.id) {
+        } else if (isOutgoing) {
+          // Slide out
           if (direction === 'right') {
             effects.positionX = lerp(0, -canvasWidth, progress);
           } else if (direction === 'left') {
@@ -280,7 +285,8 @@ const VideoPreview = ({
         }
       } else if (transition.type === 'Wipe') {
         const direction = parameters.direction || 'left';
-        if (transition.toSegmentId === element.id) {
+        if (isIncoming) {
+          // Wipe in
           if (direction === 'left') {
             effects.clipPath = `inset(0 calc((1 - ${progress}) * 100%) 0 0)`;
           } else if (direction === 'right') {
@@ -290,7 +296,8 @@ const VideoPreview = ({
           } else if (direction === 'bottom') {
             effects.clipPath = `inset(0 0 calc((1 - ${progress}) * 100%) 0)`;
           }
-        } else if (transition.fromSegmentId === element.id) {
+        } else if (isOutgoing) {
+          // Wipe out
           if (direction === 'left') {
             effects.clipPath = `inset(0 calc(${progress} * 100%) 0 0)`;
           } else if (direction === 'right') {
@@ -303,18 +310,22 @@ const VideoPreview = ({
         }
       } else if (transition.type === 'Zoom') {
         const direction = parameters.direction || 'in';
-        if (transition.toSegmentId === element.id) {
+        if (isIncoming) {
+          // Zoom in
           effects.scale = direction === 'in' ? lerp(0.1, 1, progress) : lerp(2, 1, progress);
-        } else if (transition.fromSegmentId === element.id) {
-          effects.scale = direction === 'in' ? lerp(1, 2, progress) : lerp(1, 0.1, progress);
+        } else if (isOutgoing) {
+          // Zoom out
+          effects.scale = direction === 'in' ? lerp(1, 0.1, progress) : lerp(1, 2, progress);
         }
       } else if (transition.type === 'Rotate') {
         const direction = parameters.direction || 'clockwise';
         const rotationSpeed = direction === 'clockwise' ? 720 : -720;
         const angle = rotationSpeed * transition.duration;
-        if (transition.toSegmentId === element.id) {
+        if (isIncoming) {
+          // Rotate in
           effects.rotate = lerp(angle, 0, progress);
-        } else if (transition.fromSegmentId === element.id) {
+        } else if (isOutgoing) {
+          // Rotate out
           effects.rotate = lerp(0, angle, progress);
         }
       } else if (transition.type === 'Push') {
@@ -322,7 +333,8 @@ const VideoPreview = ({
         const canvasWidth = canvasDimensions.width;
         const canvasHeight = canvasDimensions.height;
 
-        if (transition.toSegmentId === element.id) {
+        if (isIncoming) {
+          // Push in
           if (direction === 'right') {
             effects.positionX = lerp(-canvasWidth, 0, progress);
           } else if (direction === 'left') {
@@ -332,7 +344,8 @@ const VideoPreview = ({
           } else if (direction === 'bottom') {
             effects.positionY = lerp(-canvasHeight, 0, progress);
           }
-        } else if (transition.fromSegmentId === element.id) {
+        } else if (isOutgoing) {
+          // Push out
           if (direction === 'right') {
             effects.positionX = lerp(0, canvasWidth, progress);
           } else if (direction === 'left') {
@@ -638,322 +651,351 @@ const VideoPreview = ({
 
   const visibleElements = getVisibleElements();
 
-  return (
-    <div className="video-preview-container" ref={previewContainerRef}>
-      <div className="preview-area">
-        <div
-          className="canvas-wrapper"
-          style={{
-            width: `${canvasDimensions.width}px`,
-            height: `${canvasDimensions.height}px`,
-            position: 'relative',
-            overflow: 'hidden',
-            backgroundColor: 'black',
-            transformOrigin: 'top left',
-          }}
-        >
-          {visibleElements.map((element) => {
-            const positionX = getKeyframeValue(
-              element.keyframes && element.keyframes.positionX,
-              element.localTime,
-              element.positionX || 0
-            );
-            const positionY = getKeyframeValue(
-              element.keyframes && element.keyframes.positionY,
-              element.localTime,
-              element.positionY || 0
-            );
-            const scaleFactor = getKeyframeValue(
-              element.keyframes && element.keyframes.scale,
-              element.localTime,
-              element.scale || 1
-            );
-            let opacity = getKeyframeValue(
-              element.keyframes && element.keyframes.opacity,
-              element.localTime,
-              element.opacity || 1
-            );
+    return (
+      <div className="video-preview-container" ref={previewContainerRef}>
+        <div className="preview-area">
+          <div
+            className="canvas-wrapper"
+            style={{
+              width: `${canvasDimensions.width}px`,
+              height: `${canvasDimensions.height}px`,
+              position: 'relative',
+              overflow: 'hidden',
+              backgroundColor: 'black',
+              transformOrigin: 'top left',
+            }}
+          >
+            {visibleElements.map((element) => {
+              const positionX = getKeyframeValue(
+                element.keyframes && element.keyframes.positionX,
+                element.localTime,
+                element.positionX || 0
+              );
+              const positionY = getKeyframeValue(
+                element.keyframes && element.keyframes.positionY,
+                element.localTime,
+                element.positionY || 0
+              );
+              const scaleFactor = getKeyframeValue(
+                element.keyframes && element.keyframes.scale,
+                element.localTime,
+                element.scale || 1
+              );
+              let opacity = getKeyframeValue(
+                element.keyframes && element.keyframes.opacity,
+                element.localTime,
+                element.opacity || 1
+              );
 
-            const transitionEffects = computeTransitionEffects(element, element.localTime);
-            if (transitionEffects.opacity !== null) {
-              opacity = transitionEffects.opacity;
-            }
-            const transitionPosX = transitionEffects.positionX;
-            const transitionPosY = transitionEffects.positionY;
-            const clipPath = transitionEffects.clipPath;
-            const transitionScale = transitionEffects.scale;
-            const transitionRotate = transitionEffects.rotate;
+              console.log(`Rendering ${element.type} ${element.id}: localTime=${element.localTime}, positionX=${positionX}, positionY=${positionY}, scale=${scaleFactor}, opacity=${opacity}`);
 
-            const { css: filterStyle, webgl: webglFilters } = computeFilterStyle(
-              element.filters,
-              element.localTime
-            );
-
-            let transform = '';
-            const rotateFilter = element.filters?.find((f) => f.filterName === 'rotate');
-            const flipFilter = element.filters?.find((f) => f.filterName === 'flip');
-            if (rotateFilter) {
-              transform += `rotate(${parseInt(rotateFilter.filterValue)}deg) `;
-            }
-            if (flipFilter) {
-              if (flipFilter.filterValue === 'horizontal') {
-                transform += 'scaleX(-1) ';
-              } else if (flipFilter.filterValue === 'vertical') {
-                transform += 'scaleY(-1) ';
+              const transitionEffects = computeTransitionEffects(element, element.localTime);
+              if (transitionEffects.opacity !== null) {
+                opacity = transitionEffects.opacity;
               }
-            }
-            if (transitionScale !== null) {
-              transform += `scale(${transitionScale}) `;
-            }
-            if (transitionRotate !== null) {
-              transform += `rotate(${transitionRotate}deg) `;
-            }
+              const transitionPosX = transitionEffects.positionX || 0;
+              const transitionPosY = transitionEffects.positionY || 0;
+              let clipPath = transitionEffects.clipPath;
+              const transitionScale = transitionEffects.scale;
+              const transitionRotate = transitionEffects.rotate;
 
-            if (element.type === 'video') {
-              const videoWidth = element.width || 1080;
-              const videoHeight = element.height || 1920;
-
-              let displayWidth = videoWidth * scaleFactor;
-              let displayHeight = videoHeight * scaleFactor;
-
-              const posX = (canvasDimensions.width - displayWidth) / 2 + positionX + transitionPosX;
-              const posY = (canvasDimensions.height - displayHeight) / 2 + positionY + transitionPosY;
-
-              return (
-                <React.Fragment key={element.id}>
-                  <video
-                    ref={(el) => (videoRefs.current[element.id] = el)}
-                    className="preview-video"
-                    muted={true}
-                    crossOrigin="anonymous"
-                    style={{
-                      position: 'absolute',
-                      width: `${displayWidth}px`,
-                      height: `${displayHeight}px`,
-                      left: `${posX}px`,
-                      top: `${posY}px`,
-                      zIndex: element.layerIndex,
-                      opacity,
-                      objectFit: 'contain',
-                      filter: filterStyle,
-                      transform: transform.trim(),
-                      clipPath,
-                      display: webglFilters.length > 0 ? 'none' : 'block',
-                    }}
-                    onError={(e) => console.error(`Error loading video ${element.filePath}:`, e)}
-                    onLoadedData={() => console.log(`Video ${element.filePath} loaded`)}
-                    preload="auto"
-                  />
-                  {webglFilters.length > 0 && (
-                    <canvas
-                      style={{
-                        position: 'absolute',
-                        width: `${displayWidth}px`,
-                        height: `${displayHeight}px`,
-                        left: `${posX}px`,
-                        top: `${posY}px`,
-                        zIndex: element.layerIndex,
-                        opacity,
-                        transform: transform.trim(),
-                        clipPath,
-                      }}
-                      ref={(canvas) => {
-                        if (canvas && videoRefs.current[element.id]) {
-                          const filtered = applyWebGLFilters(element, videoRefs.current[element.id]);
-                          if (filtered === videoRefs.current[element.id]) {
-                            canvas.style.display = 'none';
-                            if (videoRefs.current[element.id]) {
-                              videoRefs.current[element.id].style.display = 'block';
-                            }
-                          } else {
-                            canvas.width = displayWidth;
-                            canvas.height = displayHeight;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(filtered, 0, 0, displayWidth, displayHeight);
-                          }
-                        }
-                      }}
-                    />
-                  )}
-                </React.Fragment>
+              const { css: filterStyle, webgl: webglFilters } = computeFilterStyle(
+                element.filters,
+                element.localTime
               );
-            } else if (element.type === 'image') {
-              const imgWidth = element.width || canvasDimensions.width;
-              const imgHeight = element.height || canvasDimensions.height;
-              const displayWidth = imgWidth * scaleFactor;
-              const displayHeight = imgHeight * scaleFactor;
 
-              const posX = (canvasDimensions.width - displayWidth) / 2 + positionX + transitionPosX;
-              const posY = (canvasDimensions.height - displayHeight) / 2 + positionY + transitionPosY;
+              // Compute crop values
+              const cropL = element.cropL || 0;
+              const cropR = element.cropR || 0;
+              const cropT = element.cropT || 0;
+              const cropB = element.cropB || 0;
 
-              const photo = photos.find((p) => p.fileName === element.fileName) || {
-                filePath: element.filePath,
-              };
-
-              // Ensure filters is an array
-              const safeFilters = Array.isArray(element.filters) ? element.filters : [];
-              const rotateFilter = safeFilters.find((f) => f.filterName === 'rotate');
-              const flipFilter = safeFilters.find((f) => f.filterName === 'flip');
-
-              return (
-                <React.Fragment key={element.id}>
-                  <img
-                    src={webglFilters.length > 0 ? null : photo.filePath}
-                    alt="Preview"
-                    crossOrigin="anonymous"
-                    style={{
-                      position: 'absolute',
-                      width: `${displayWidth}px`,
-                      height: `${displayHeight}px`,
-                      left: `${posX}px`,
-                      top: `${posY}px`,
-                      opacity,
-                      zIndex: element.layerIndex,
-                      filter: filterStyle,
-                      transform: transform.trim(),
-                      clipPath,
-                      display: webglFilters.length > 0 ? 'none' : 'block',
-                    }}
-                  />
-                  {webglFilters.length > 0 && (
-                    <canvas
-                      style={{
-                        position: 'absolute',
-                        width: `${displayWidth}px`,
-                        height: `${displayHeight}px`,
-                        left: `${posX}px`,
-                        top: `${posY}px`,
-                        zIndex: element.layerIndex,
-                        opacity,
-                        transform: transform.trim(),
-                        clipPath,
-                      }}
-                      ref={(canvas) => {
-                        if (canvas) {
-                          const img = new Image();
-                          img.crossOrigin = 'anonymous';
-                          img.src = photo.filePath;
-                          img.onload = () => {
-                            const filtered = applyWebGLFilters(element, img);
-                            canvas.width = displayWidth;
-                            canvas.height = displayHeight;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(filtered, 0, 0, displayWidth, displayHeight);
-                          };
-                          img.onerror = () => {
-                            console.error(`Failed to load image for WebGL filtering: ${photo.filePath}`);
-                          };
-                        }
-                      }}
-                    />
-                  )}
-                </React.Fragment>
-              );
-            } else if (element.type === 'text') {
-              const fontSize = baseFontSize * scaleFactor;
-
-              // Define resolution multiplier based on canvas width (same as backend)
-              const resolutionMultiplier = canvasDimensions.width >= 3840 ? 1.5 : 2.0;
-
-              // Calculate adjusted font size to match backend
-              const adjustedFontSize = fontSize * resolutionMultiplier;
-
-              // Get the base position (center point)
-              const centerX = canvasDimensions.width / 2 + positionX + transitionPosX;
-              const centerY = canvasDimensions.height / 2 + positionY + transitionPosY;
-
-              // Compute background styles
-              const bgPadding = (element.backgroundPadding || 0) * scaleFactor * resolutionMultiplier;
-              const borderWidth = (element.backgroundBorderWidth || 0) * scaleFactor * resolutionMultiplier;
-              const bgOpacity = element.backgroundOpacity !== undefined ? element.backgroundOpacity : 1.0;
-              let bgColorStyle = 'transparent';
-
-              if (element.backgroundColor && element.backgroundColor !== 'transparent') {
-                if (element.backgroundColor.startsWith('#')) {
-                  // Convert hex to RGBA
-                  const hex = element.backgroundColor.replace('#', '');
-                  const r = parseInt(hex.substring(0, 2), 16);
-                  const g = parseInt(hex.substring(2, 4), 16);
-                  const b = parseInt(hex.substring(4, 6), 16);
-                  bgColorStyle = `rgba(${r}, ${g}, ${b}, ${bgOpacity})`;
-                } else {
-                  bgColorStyle = element.backgroundColor;
+              // Validate crop percentages
+              if (cropL < 0 || cropL > 100 || cropR < 0 || cropR > 100 || cropT < 0 || cropT > 100 || cropB < 0 || cropB > 100) {
+                console.warn(`Invalid crop percentages for ${element.type} ${element.id}: cropL=${cropL}, cropR=${cropR}, cropT=${cropT}, cropB=${cropB}`);
+              } else if (cropL + cropR >= 100 || cropT + cropB >= 100) {
+                console.warn(`Total crop percentages exceed 100% for ${element.type} ${element.id}: cropL+cropR=${cropL + cropR}, cropT+cropB=${cropT + cropB}`);
+              } else {
+                // Apply crop using clip-path if any crop values are non-zero
+                if (cropL > 0 || cropR > 0 || cropT > 0 || cropB > 0) {
+                  const cropClipPath = `inset(${cropT}% ${cropR}% ${cropB}% ${cropL}%)`;
+                  // Combine with transition clipPath if it exists
+                  clipPath = clipPath ? `${cropClipPath} ${clipPath}` : cropClipPath;
                 }
               }
 
-              // Calculate border radius with better proportional scaling
-              const baseRadius = element.backgroundBorderRadius || 0;
-              const correctionFactor = 0.55; // Keep existing correction factor
-              const bgBorderRadius = baseRadius * scaleFactor * resolutionMultiplier * correctionFactor;
+              // Combine all transform operations
+              let transform = '';
+              // Positioning transform
+              const totalPosX = positionX + transitionPosX;
+              const totalPosY = positionY + transitionPosY;
+              transform += `translate(${totalPosX}px, ${totalPosY}px) `;
+              // Other transforms (rotate, flip, scale, etc.)
+              const rotateFilter = element.filters?.find((f) => f.filterName === 'rotate');
+              const flipFilter = element.filters?.find((f) => f.filterName === 'flip');
+              if (rotateFilter) {
+                transform += `rotate(${parseInt(rotateFilter.filterValue)}deg) `;
+              }
+              if (flipFilter) {
+                if (flipFilter.filterValue === 'horizontal') {
+                  transform += 'scaleX(-1) ';
+                } else if (flipFilter.filterValue === 'vertical') {
+                  transform += 'scaleY(-1) ';
+                }
+              }
+              if (transitionScale !== null) {
+                transform += `scale(${transitionScale}) `;
+              }
+              if (transitionRotate !== null) {
+                transform += `rotate(${transitionRotate}deg) `;
+              }
 
-              const borderColor = element.backgroundBorderColor && element.backgroundBorderColor !== 'transparent'
-                ? element.backgroundBorderColor
-                : 'transparent';
+              if (element.type === 'video') {
+                const videoWidth = element.width || 1080;
+                const videoHeight = element.height || 1920;
 
-              // Calculate a rough estimate of the text dimensions
-              const textLines = element.text.split('\n');
-              const lineHeight = adjustedFontSize * 1.2;
-              const textHeight = textLines.length * lineHeight;
-              const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, '');
-              const approxTextWidth = longestLine.length * adjustedFontSize * 0.6;
+                let displayWidth = videoWidth * scaleFactor;
+                let displayHeight = videoHeight * scaleFactor;
 
-              // Adjust border radius to be proportional to content size
-              const contentWidth = approxTextWidth + (bgPadding * 2);
-              const contentHeight = textHeight + (bgPadding * 2);
-              const minDimension = Math.min(contentWidth, contentHeight);
-              const maxRadius = minDimension / 2;
-              const effectiveBorderRadius = Math.min(bgBorderRadius, maxRadius);
+                // Center the element on the canvas
+                const centerX = canvasDimensions.width / 2 - displayWidth / 2;
+                const centerY = canvasDimensions.height / 2 - displayHeight / 2;
 
-              return (
-                <div
-                  key={element.id}
-                  className="preview-text"
-                  style={{
-                    position: 'absolute',
-                    left: `${centerX}px`,
-                    top: `${centerY}px`,
-                    fontFamily: element.fontFamily || 'Arial',
-                    fontSize: `${adjustedFontSize}px`, // Use adjusted font size
-                    color: element.fontColor || '#FFFFFF',
-                    background: bgColorStyle,
-                    padding: `${bgPadding}px`,
-                    borderRadius: `${effectiveBorderRadius}px`,
-                    borderWidth: `${borderWidth}px`,
-                    borderStyle: borderWidth > 0 ? 'solid' : 'none',
-                    borderColor: borderColor,
-                    zIndex: element.layerIndex + 10,
-                    whiteSpace: 'pre-wrap',
-                    opacity,
-                    filter: filterStyle,
-                    transform: `translate(-50%, -50%) ${transform.trim()}`,
-                    transformOrigin: 'center',
-                    clipPath,
-                    display: 'inline-block',
-                    textAlign: element.alignment || 'center',
-                    boxSizing: 'content-box',
-                    maxWidth: `${canvasDimensions.width * 0.8}px`,
-                  }}
-                >
-                  {element.text}
-                </div>
-              );
-            }
-            return null;
-          })}
-        </div>
+                return (
+                  <React.Fragment key={element.id}>
+                    <video
+                      ref={(el) => (videoRefs.current[element.id] = el)}
+                      className="preview-video"
+                      muted={true}
+                      crossOrigin="anonymous"
+                      style={{
+                        position: 'absolute',
+                        left: `${centerX}px`, // Center horizontally
+                        top: `${centerY}px`, // Center vertically
+                        width: `${displayWidth}px`,
+                        height: `${displayHeight}px`,
+                        zIndex: element.layerIndex,
+                        opacity,
+                        objectFit: 'contain',
+                        filter: filterStyle,
+                        transform: transform.trim(),
+                        clipPath,
+                        display: webglFilters.length > 0 ? 'none' : 'block',
+                        transition: 'transform 0.016s linear, opacity 0.016s linear',
+                        transformOrigin: 'center center',
+                      }}
+                      onError={(e) => console.error(`Error loading video ${element.filePath}:`, e)}
+                      onLoadedData={() => console.log(`Video ${element.filePath} loaded`)}
+                      preload="auto"
+                    />
+                    {webglFilters.length > 0 && (
+                      <canvas
+                        style={{
+                          position: 'absolute',
+                          left: `${centerX}px`,
+                          top: `${centerY}px`,
+                          width: `${displayWidth}px`,
+                          height: `${displayHeight}px`,
+                          zIndex: element.layerIndex,
+                          opacity,
+                          transform: transform.trim(),
+                          clipPath,
+                          transition: 'transform 0.016s linear, opacity 0.016s linear',
+                          transformOrigin: 'center center',
+                        }}
+                        ref={(canvas) => {
+                          if (canvas && videoRefs.current[element.id]) {
+                            const filtered = applyWebGLFilters(element, videoRefs.current[element.id]);
+                            if (filtered === videoRefs.current[element.id]) {
+                              canvas.style.display = 'none';
+                              if (videoRefs.current[element.id]) {
+                                videoRefs.current[element.id].style.display = 'block';
+                              }
+                            } else {
+                              canvas.width = displayWidth;
+                              canvas.height = displayHeight;
+                              const ctx = canvas.getContext('2d');
+                              ctx.drawImage(filtered, 0, 0, displayWidth, displayHeight);
+                            }
+                          }
+                        }}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              } else if (element.type === 'image') {
+                const imgWidth = element.width || canvasDimensions.width;
+                const imgHeight = element.height || canvasDimensions.height;
+                const displayWidth = imgWidth * scaleFactor;
+                const displayHeight = imgHeight * scaleFactor;
 
-        {visibleElements.length === 0 && <div className="preview-empty-state"></div>}
+                // Center the element on the canvas
+                const centerX = canvasDimensions.width / 2 - displayWidth / 2;
+                const centerY = canvasDimensions.height / 2 - displayHeight / 2;
 
-        {loadingVideos.size > 0 && (
-          <div className="preview-loading">
-            <div className="preview-spinner"></div>
+                const photo = photos.find((p) => p.fileName === element.fileName) || {
+                  filePath: element.filePath,
+                };
+
+                const safeFilters = Array.isArray(element.filters) ? element.filters : [];
+                const rotateFilter = safeFilters.find((f) => f.filterName === 'rotate');
+                const flipFilter = safeFilters.find((f) => f.filterName === 'flip');
+
+                return (
+                  <React.Fragment key={element.id}>
+                    <img
+                      src={webglFilters.length > 0 ? null : photo.filePath}
+                      alt="Preview"
+                      crossOrigin="anonymous"
+                      style={{
+                        position: 'absolute',
+                        left: `${centerX}px`,
+                        top: `${centerY}px`,
+                        width: `${displayWidth}px`,
+                        height: `${displayHeight}px`,
+                        zIndex: element.layerIndex,
+                        opacity,
+                        filter: filterStyle,
+                        transform: transform.trim(),
+                        clipPath,
+                        display: webglFilters.length > 0 ? 'none' : 'block',
+                        transition: 'transform 0.016s linear, opacity 0.016s linear',
+                        transformOrigin: 'center center',
+                      }}
+                    />
+                    {webglFilters.length > 0 && (
+                      <canvas
+                        style={{
+                          position: 'absolute',
+                          left: `${centerX}px`,
+                          top: `${centerY}px`,
+                          width: `${displayWidth}px`,
+                          height: `${displayHeight}px`,
+                          zIndex: element.layerIndex,
+                          opacity,
+                          transform: transform.trim(),
+                          clipPath,
+                          transition: 'transform 0.016s linear, opacity 0.016s linear',
+                          transformOrigin: 'center center',
+                        }}
+                        ref={(canvas) => {
+                          if (canvas) {
+                            const img = new Image();
+                            img.crossOrigin = 'anonymous';
+                            img.src = photo.filePath;
+                            img.onload = () => {
+                              const filtered = applyWebGLFilters(element, img);
+                              canvas.width = displayWidth;
+                              canvas.height = displayHeight;
+                              const ctx = canvas.getContext('2d');
+                              ctx.drawImage(filtered, 0, 0, displayWidth, displayHeight);
+                            };
+                            img.onerror = () => {
+                              console.error(`Failed to load image for WebGL filtering: ${photo.filePath}`);
+                            };
+                          }
+                        }}
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              } else if (element.type === 'text') {
+                // ... (text rendering remains unchanged)
+                const fontSize = baseFontSize * scaleFactor;
+                const resolutionMultiplier = canvasDimensions.width >= 3840 ? 1.5 : 2.0;
+                const adjustedFontSize = fontSize * resolutionMultiplier;
+
+                const centerX = canvasDimensions.width / 2;
+                const centerY = canvasDimensions.height / 2;
+
+                const bgPadding = (element.backgroundPadding || 0) * scaleFactor * resolutionMultiplier;
+                const borderWidth = (element.backgroundBorderWidth || 0) * scaleFactor * resolutionMultiplier;
+                const bgOpacity = element.backgroundOpacity !== undefined ? element.backgroundOpacity : 1.0;
+                let bgColorStyle = 'transparent';
+
+                if (element.backgroundColor && element.backgroundColor !== 'transparent') {
+                  if (element.backgroundColor.startsWith('#')) {
+                    const hex = element.backgroundColor.replace('#', '');
+                    const r = parseInt(hex.substring(0, 2), 16);
+                    const g = parseInt(hex.substring(2, 4), 16);
+                    const b = parseInt(hex.substring(4, 6), 16);
+                    bgColorStyle = `rgba(${r}, ${g}, ${b}, ${bgOpacity})`;
+                  } else {
+                    bgColorStyle = element.backgroundColor;
+                  }
+                }
+
+                const baseRadius = element.backgroundBorderRadius || 0;
+                const correctionFactor = 0.55;
+                const bgBorderRadius = baseRadius * scaleFactor * resolutionMultiplier * correctionFactor;
+
+                const borderColor = element.backgroundBorderColor && element.backgroundBorderColor !== 'transparent'
+                  ? element.backgroundBorderColor
+                  : 'transparent';
+
+                const textLines = element.text.split('\n');
+                const lineHeight = adjustedFontSize * 1.2;
+                const textHeight = textLines.length * lineHeight;
+                const longestLine = textLines.reduce((a, b) => a.length > b.length ? a : b, '');
+                const approxTextWidth = longestLine.length * adjustedFontSize * 0.6;
+
+                const contentWidth = approxTextWidth + (bgPadding * 2);
+                const contentHeight = textHeight + (bgPadding * 2);
+                const minDimension = Math.min(contentWidth, contentHeight);
+                const maxRadius = minDimension / 2;
+                const effectiveBorderRadius = Math.min(bgBorderRadius, maxRadius);
+
+                return (
+                  <div
+                    key={element.id}
+                    className="preview-text"
+                    style={{
+                      position: 'absolute',
+                      left: `${centerX}px`,
+                      top: `${centerY}px`,
+                      fontFamily: element.fontFamily || 'Arial',
+                      fontSize: `${adjustedFontSize}px`,
+                      color: element.fontColor || '#FFFFFF',
+                      background: bgColorStyle,
+                      padding: `${bgPadding}px`,
+                      borderRadius: `${effectiveBorderRadius}px`,
+                      borderWidth: `${borderWidth}px`,
+                      borderStyle: borderWidth > 0 ? 'solid' : 'none',
+                      borderColor: borderColor,
+                      zIndex: element.layerIndex,
+                      whiteSpace: 'pre-wrap',
+                      opacity,
+                      filter: filterStyle,
+                      transform: `translate(-50%, -50%) ${transform.trim()}`,
+                      transformOrigin: 'center center',
+                      clipPath,
+                      display: 'inline-block',
+                      textAlign: element.alignment || 'center',
+                      boxSizing: 'content-box',
+                      maxWidth: `${canvasDimensions.width * 0.8}px`,
+                      transition: 'transform 0.016s linear, opacity 0.016s linear',
+                    }}
+                  >
+                    {element.text}
+                  </div>
+                );
+              }
+              return null;
+            })}
           </div>
-        )}
 
-        <div className="preview-time">{formatTime(currentTime)}</div>
+          {visibleElements.length === 0 && <div className="preview-empty-state"></div>}
+
+          {loadingVideos.size > 0 && (
+            <div className="preview-loading">
+              <div className="preview-spinner"></div>
+            </div>
+          )}
+
+          <div className="preview-time">{formatTime(currentTime)}</div>
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
-export default VideoPreview;
+  export default VideoPreview;

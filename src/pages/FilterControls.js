@@ -5,10 +5,31 @@ const FilterControls = ({
   filterParams,
   appliedFilters,
   updateFilterSetting,
+  resetFilters
 }) => {
   return (
     <div className="filters-panel" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-      <h3>Filters</h3>
+      <h3>
+        Filters
+        {selectedSegment && (selectedSegment.type === 'video' || selectedSegment.type === 'image') && (
+          <button
+            onClick={resetFilters}
+            style={{
+              marginLeft: '10px',
+              padding: '2px 6px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              background: '#ff4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+            }}
+            title="Reset all filters"
+          >
+            ↺
+          </button>
+        )}
+      </h3>
       {!selectedSegment || (selectedSegment.type !== 'video' && selectedSegment.type !== 'image') ? (
         <p>Select a video or image segment to apply filters</p>
       ) : (

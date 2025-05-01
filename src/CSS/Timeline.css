@@ -352,28 +352,6 @@
   100% { opacity: 0.5; }
 }
 
-.snap-indicator {
-  position: absolute;
-  width: 3px;
-  height: 40px;
-  background-color: #ff9800;
-  z-index: 9;
-  pointer-events: none;
-  animation: pulse 0.6s infinite alternate;
-}
-
-.snap-indicator::before {
-  content: '';
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  background-color: #ff9800;
-  border-radius: 50%;
-  left: -2.5px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
 .video-clip .clip-content {
   background-color: rgba(0, 0, 0, 0.5);
 }
@@ -397,17 +375,6 @@
 .timeline-item.playing {
   border: 2px solid #ff9800 !important;
   box-shadow: 0 0 8px rgba(255, 152, 0, 0.6);
-}
-
-.snap-indicator.snap-timeline-start {
-  background-color: #4CAF50;
-  width: 4px;
-}
-
-.snap-indicator.snap-timeline-start::before {
-  background-color: #4CAF50;
-  width: 10px;
-  height: 10px;
 }
 
 .text-segment-dialog {
@@ -622,6 +589,13 @@
   white-space: nowrap;
   box-sizing: border-box;
   color: #fff;
+}
+
+.snap-indicator.snap-playhead {
+  background-color: #ff5555; /* Example: Red for playhead snap */
+  opacity: 0.8;
+  width: 2px;
+  z-index: 1000;
 }
 
 .audio-segment-icon {

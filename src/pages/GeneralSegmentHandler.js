@@ -27,6 +27,7 @@ const GeneralSegmentHandler = ({
   updateImageSegment,
   updateAudioSegment,
   fetchVideoDuration,
+  currentTime,
 }) => {
   const durationCache = useRef(new Map());
 
@@ -92,7 +93,11 @@ const GeneralSegmentHandler = ({
       });
     });
 
+    // Add timeline start and playhead as snap points
     snapPoints.push({ time: 0, layerIdx: dragLayer, type: 'timelineStart' });
+    if (currentTime !== undefined && !isNaN(currentTime)) {
+      snapPoints.push({ time: currentTime, layerIdx: dragLayer, type: 'playhead' });
+    }
 
     // Check for overlaps within the same layer
     let isValidPosition = true;
@@ -146,7 +151,7 @@ const GeneralSegmentHandler = ({
       let minDistance = SNAP_THRESHOLD;
 
       snapPoints.forEach(point => {
-        const currentThreshold = point.time === 0 ? SNAP_THRESHOLD * 2 : SNAP_THRESHOLD;
+        const currentThreshold = point.type === 'timelineStart' || point.type === 'playhead' ? SNAP_THRESHOLD * 2 : SNAP_THRESHOLD;
 
         const distanceToStart = Math.abs(point.time - potentialStartTime);
         if (distanceToStart < currentThreshold && distanceToStart < minDistance) {
@@ -175,6 +180,7 @@ const GeneralSegmentHandler = ({
           time: closestSnapPoint.edge === 'start' ? potentialStartTime : potentialStartTime + draggingItem.duration,
           layerIdx: dragLayer,
           edge: closestSnapPoint.edge,
+          type: closestSnapPoint.type, // Include type for SnapIndicators
         });
       }
     }
@@ -231,7 +237,7 @@ const GeneralSegmentHandler = ({
       if (!resizingItem || !timelineRef.current) return;
       const timelineRect = timelineRef.current.getBoundingClientRect();
       const mouseX = e.clientX - timelineRect.left;
-      const newTime = Math.max(0, mouseX / timeScale);
+      let newTime = Math.max(0, mouseX / timeScale);
       const isAudioLayer = resizingItem.layer < 0;
       const layerArray = isAudioLayer ? audioLayers : videoLayers;
       const layerIndex = isAudioLayer ? Math.abs(resizingItem.layer) - 1 : resizingItem.layerIndex;
@@ -258,6 +264,22 @@ const GeneralSegmentHandler = ({
       let newStartWithin = originalStartWithin;
       let newEndWithin = originalEndWithin;
 
+      // Collect snap points from all layers
+      const snapPoints = [];
+      [...videoLayers, ...audioLayers].forEach((layer, layerIdx) => {
+        const isAudio = layerIdx >= videoLayers.length;
+        const adjustedLayerIdx = isAudio ? -(layerIdx - videoLayers.length + 1) : layerIdx;
+        layer.forEach((otherItem) => {
+          if (otherItem.id === resizingItem.id) return;
+          snapPoints.push({ time: otherItem.startTime, layerIdx: adjustedLayerIdx, type: 'start' });
+          snapPoints.push({ time: otherItem.startTime + otherItem.duration, layerIdx: adjustedLayerIdx, type: 'end' });
+        });
+      });
+      snapPoints.push({ time: 0, layerIdx: resizingItem.layer, type: 'timelineStart' });
+      if (currentTime !== undefined && !isNaN(currentTime)) {
+        snapPoints.push({ time: currentTime, layerIdx: resizingItem.layer, type: 'playhead' });
+      }
+
       // Check for collisions with other segments in the same layer
       const otherItems = layer.filter((i) => i.id !== resizingItem.id);
       let maxLeftBound = -Infinity;
@@ -274,12 +296,42 @@ const GeneralSegmentHandler = ({
         }
       });
 
+      // Snapping logic
+      let closestSnapPoint = null;
+      let minDistance = SNAP_THRESHOLD;
+      let isSnapping = false;
+
       if (resizeEdge === 'left') {
         const originalEndTime = originalStartTime + item.duration;
         newStartTime = Math.min(newTime, originalEndTime - 0.1);
         if (maxLeftBound !== -Infinity) {
           newStartTime = Math.max(newStartTime, maxLeftBound);
         }
+
+        // Check snapping for left edge
+        snapPoints.forEach((point) => {
+          const distance = Math.abs(point.time - newStartTime);
+          const currentThreshold = point.type === 'timelineStart' || point.type === 'playhead' ? SNAP_THRESHOLD * 2 : SNAP_THRESHOLD;
+          if (distance < currentThreshold && distance < minDistance) {
+            minDistance = distance;
+            closestSnapPoint = { time: point.time, layerIdx: point.layerIdx, type: point.type, edge: 'start' };
+          }
+        });
+
+        if (closestSnapPoint) {
+          newStartTime = Math.max(maxLeftBound, closestSnapPoint.time);
+          isSnapping = true;
+          // Add snap indicator
+          setSnapIndicators([{
+            time: newStartTime,
+            layerIdx: resizingItem.layer,
+            edge: 'start',
+            type: closestSnapPoint.type,
+          }]);
+        } else {
+          setSnapIndicators([]);
+        }
+
         newDuration = originalEndTime - newStartTime;
         if (item.type === 'video' || item.type === 'audio') {
           const timeShift = newStartTime - originalStartTime;
@@ -298,6 +350,31 @@ const GeneralSegmentHandler = ({
         if (minRightBound !== Infinity) {
           clampedEndTime = Math.min(newEndTime, minRightBound);
         }
+
+        // Check snapping for right edge
+        snapPoints.forEach((point) => {
+          const distance = Math.abs(point.time - clampedEndTime);
+          const currentThreshold = point.type === 'timelineStart' || point.type === 'playhead' ? SNAP_THRESHOLD * 2 : SNAP_THRESHOLD;
+          if (distance < currentThreshold && distance < minDistance) {
+            minDistance = distance;
+            closestSnapPoint = { time: point.time, layerIdx: point.layerIdx, type: point.type, edge: 'end' };
+          }
+        });
+
+        if (closestSnapPoint) {
+          clampedEndTime = Math.min(minRightBound, closestSnapPoint.time);
+          isSnapping = true;
+          // Add snap indicator
+          setSnapIndicators([{
+            time: clampedEndTime,
+            layerIdx: resizingItem.layer,
+            edge: 'end',
+            type: closestSnapPoint.type,
+          }]);
+        } else {
+          setSnapIndicators([]);
+        }
+
         newDuration = clampedEndTime - originalStartTime;
         if (item.type === 'video' || item.type === 'audio') {
           newStartWithin = originalStartWithin;
@@ -321,6 +398,13 @@ const GeneralSegmentHandler = ({
         }
       }
 
+      // Apply .snapping class to the resizing element
+      const resizingElement = document.querySelector(`.timeline-item[data-id="${resizingItem.id}"]`);
+      if (resizingElement) {
+        resizingElement.classList.toggle('snapping', isSnapping);
+      }
+
+      // Update item properties
       item.startTime = newStartTime;
       item.duration = newDuration;
       item.timelineStartTime = newStartTime;
@@ -350,7 +434,10 @@ const GeneralSegmentHandler = ({
       timeScale,
       setVideoLayers,
       setAudioLayers,
+      SNAP_THRESHOLD,
       fetchVideoDuration,
+      currentTime, // Add currentTime to dependencies
+      setSnapIndicators,
     ]
   );
 
