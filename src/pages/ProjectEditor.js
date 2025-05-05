@@ -10,6 +10,7 @@ import AudioSegmentHandler from './AudioSegmentHandler';
 import KeyframeControls from './KeyframeControls';
 import FilterControls from './FilterControls';
 import TransitionsPanel from './TransitionsPanel';
+import { v4 as uuidv4 } from 'uuid';
 
 const API_BASE_URL = 'http://localhost:8080';
   const defaultTextStyles = [
@@ -26,9 +27,13 @@ const API_BASE_URL = 'http://localhost:8080';
       backgroundOpacity: 1.0,
       backgroundBorderWidth: 0,
       backgroundBorderColor: "#f1ffbd",
-      backgroundPadding: 10,
+      backgroundH: 20, // Add this
+      backgroundW: 100, // Add this
       backgroundBorderRadius: 9,
       duration: 5,
+      textBorderColor: 'transparent', // Added
+      textBorderWidth: 0, // Added
+      textBorderOpacity: 1.0, // Added
     },
     {
       text: "Text Style 2",
@@ -43,9 +48,13 @@ const API_BASE_URL = 'http://localhost:8080';
       backgroundOpacity: 0.21,
       backgroundBorderWidth: 0,
       backgroundBorderColor: "#000000",
-      backgroundPadding: 12,
+      backgroundH: 20, // Add this
+      backgroundW: 100, // Add this
       backgroundBorderRadius: 10,
       duration: 5,
+      textBorderColor: 'transparent', // Added
+      textBorderWidth: 0, // Added
+      textBorderOpacity: 1.0, // Added
     },
     {
       text: "Text Style 3",
@@ -60,9 +69,13 @@ const API_BASE_URL = 'http://localhost:8080';
       backgroundOpacity: 1.0,
       backgroundBorderWidth: 0,
       backgroundBorderColor: "#000000",
-      backgroundPadding: 10,
+      backgroundH: 20, // Add this
+      backgroundW: 100, // Add this
       backgroundBorderRadius: 10,
       duration: 5,
+      textBorderColor: 'transparent', // Added
+      textBorderWidth: 0, // Added
+      textBorderOpacity: 1.0, // Added
     },
   ];
 
@@ -102,8 +115,12 @@ const ProjectEditor = () => {
     backgroundOpacity: 1.0,
     backgroundBorderWidth: 0,
     backgroundBorderColor: '#000000',
-    backgroundPadding: 0,
+    backgroundH: 0, // Add this
+    backgroundW: 0, // Add this
     backgroundBorderRadius: 0,
+    textBorderColor: 'transparent', // Added for text border
+    textBorderWidth: 0, // Added for text border
+    textBorderOpacity: 1.0, // Added for text border
   });
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [filterParams, setFilterParams] = useState({});
@@ -125,6 +142,8 @@ const ProjectEditor = () => {
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [loadedAudioSegments, setLoadedAudioSegments] = useState(new Set()); // Track loaded audio segments
+  // Add this to the existing state declarations at the top of ProjectEditor
+  const [elementSearchQuery, setElementSearchQuery] = useState('');
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -451,7 +470,12 @@ const ProjectEditor = () => {
               backgroundOpacity: item.backgroundOpacity,
               backgroundBorderWidth: item.backgroundBorderWidth,
               backgroundBorderColor: item.backgroundBorderColor,
-              backgroundPadding: item.backgroundPadding,
+              backgroundH: item.backgroundH,
+              backgroundW: item.backgroundW,
+              backgroundBorderRadius: item.backgroundBorderRadius,
+              textBorderColor: item.textBorderColor, // Added
+              textBorderWidth: item.textBorderWidth, // Added
+              textBorderOpacity: item.textBorderOpacity, // Added
               keyframes: item.keyframes || {},
             });
           }
@@ -514,221 +538,38 @@ const ProjectEditor = () => {
     return layers.length;
   };
 
-  const handleAudioDrop = async (audio, layer, timelineStartTime) => {
-    if (uploading) return;
-    try {
-      const token = localStorage.getItem('token');
-      if (!sessionId || !projectId || !token) {
-        throw new Error('Missing sessionId, projectId, or token');
-      }
-
-      const duration = audio.duration || 5;
-      const backendLayer = -(layer + 1);
-      const selectedLayerIndex = layer;
-
-      const newSegment = {
-        id: `temp-${Date.now()}`,
-        type: 'audio',
-        fileName: audio.fileName,
-        audioPath: `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(audio.fileName)}`,
-        displayName: audio.displayName || audio.fileName.split('/').pop(),
-        waveformImage: audio.waveformImage || '/images/audio.jpeg',
-        startTime: roundToThreeDecimals(timelineStartTime),
-        duration: duration,
-        layer: backendLayer,
-        volume: 1.0,
-        startTimeWithinAudio: 0,
-        endTimeWithinAudio: duration,
-        timelineStartTime: roundToThreeDecimals(timelineStartTime),
-        timelineEndTime: roundToThreeDecimals(timelineStartTime + duration),
-        keyframes: {},
-      };
-
-      let updatedAudioLayers = audioLayers;
-      setAudioLayers((prevLayers) => {
-        const newLayers = [...prevLayers];
-        while (newLayers.length <= selectedLayerIndex) newLayers.push([]);
-        newLayers[selectedLayerIndex].push(newSegment);
-        updatedAudioLayers = newLayers;
-        return newLayers;
-      });
-
-      setTotalDuration((prev) => Math.max(prev, timelineStartTime + duration));
-      preloadMedia();
-      saveHistory();
-
-      const response = await axios.post(
-        `${API_BASE_URL}/projects/${projectId}/add-project-audio-to-timeline`,
-        {
-          audioFileName: audio.fileName,
-          layer: backendLayer,
-          timelineStartTime: roundToThreeDecimals(timelineStartTime),
-          timelineEndTime: roundToThreeDecimals(timelineStartTime + duration),
-          startTime: roundToThreeDecimals(0),
-          endTime: roundToThreeDecimals(duration),
-          volume: 1.0,
-        },
-        { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const newAudioSegment = response.data;
-
-      setAudioLayers((prevLayers) => {
-        const newLayers = [...prevLayers];
-        newLayers[selectedLayerIndex] = newLayers[selectedLayerIndex].map((item) =>
-          item.id === newSegment.id
-            ? {
-                ...item,
-                id: newAudioSegment.id || item.id,
-                volume: newAudioSegment.volume || 1.0,
-                keyframes: newAudioSegment.keyframes || {},
-                startTimeWithinAudio: roundToThreeDecimals(newAudioSegment.startTime || 0),
-                endTimeWithinAudio: roundToThreeDecimals(newAudioSegment.endTime || duration),
-                duration: roundToThreeDecimals(newAudioSegment.timelineEndTime - newAudioSegment.timelineStartTime),
-                timelineStartTime: roundToThreeDecimals(newAudioSegment.timelineStartTime),
-                timelineEndTime: roundToThreeDecimals(newAudioSegment.timelineEndTime),
-              }
-            : item
-        );
-        updatedAudioLayers = newLayers;
-        return newLayers;
-      });
-
-      autoSaveProject(videoLayers, updatedAudioLayers);
-    } catch (error) {
-      console.error('Error adding audio to timeline via drop:', error.response?.data || error.message);
-      setAudioLayers((prevLayers) => {
-        const newLayers = [...prevLayers];
-        newLayers.forEach((layer, index) => {
-          newLayers[index] = layer.filter((item) => !item.id.startsWith('temp-'));
-        });
-        return newLayers;
-      });
-      let maxEndTime = 0;
-      [...videoLayers, ...audioLayers].forEach((layer) => {
-        layer.forEach((item) => {
-          const endTime = item.startTime + item.duration;
-          if (endTime > maxEndTime) maxEndTime = endTime;
-        });
-      });
-      setTotalDuration(maxEndTime);
-      alert('Failed to add audio to timeline. Please try again.');
-    }
-  };
-
   const handleElementClick = async (element, isDragEvent = false) => {
     if (uploading || isDragEvent) return;
     try {
-    let endTime = 0;
-    videoLayers.forEach((layer) => {
-    layer.forEach((segment) => {
-    const segmentEndTime = segment.startTime + segment.duration;
-    if (segmentEndTime > endTime) endTime = segmentEndTime;
-    });
-    });
-    const timelineStartTime = endTime;
-    const duration = 5;
-    const selectedLayer = findAvailableLayer(timelineStartTime, timelineStartTime + duration, videoLayers);
+      let endTime = 0;
+      videoLayers.forEach((layer) => {
+        layer.forEach((segment) => {
+          const segmentEndTime = segment.startTime + segment.duration;
+          if (segmentEndTime > endTime) endTime = segmentEndTime;
+        });
+      });
+      const timelineStartTime = endTime;
+      const duration = 5;
+      const selectedLayer = findAvailableLayer(timelineStartTime, timelineStartTime + duration, videoLayers);
 
-    // Use ImageSegmentHandler's addImageToTimeline
-    const newSegment = await addImageToTimeline(
-    element.fileName,
-    selectedLayer,
-    roundToThreeDecimals(timelineStartTime),
-    roundToThreeDecimals(timelineStartTime + duration),
-    true // isElement
-    );
+      const newSegment = await addImageToTimeline(
+        element.fileName,
+        selectedLayer,
+        roundToThreeDecimals(timelineStartTime),
+        roundToThreeDecimals(timelineStartTime + duration),
+        true // isElement
+      );
 
-    setTotalDuration((prev) => Math.max(prev, timelineStartTime + duration));
-    preloadMedia();
-    saveHistory();
-
-    if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
-    updateTimeoutRef.current = setTimeout(() => {
-    autoSaveProject(videoLayers, audioLayers);
-    }, 1000);
-    } catch (error) {
-    console.error('Error adding element to timeline:', error);
-    alert('Failed to add element to timeline. Please try again.');
-    }
-   };
-  const handleAudioClick = async (audio, isDragEvent = false) => {
-    if (uploading || isDragEvent) return;
-    try {
-      const token = localStorage.getItem('token');
-      if (!sessionId || !projectId || !token) {
-        throw new Error('Missing sessionId, projectId, or token');
-      }
-
-      const duration = audio.duration || 5;
-      let timelineStartTime = roundToThreeDecimals(currentTime);
-
-      const findAvailableLayer = (start, end, layers) => {
-        for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
-          const hasOverlap = layers[layerIndex].some((segment) => {
-            const segmentStart = segment.startTime;
-            const segmentEnd = segmentStart + segment.duration;
-            return start < segmentEnd && end > segmentStart;
-          });
-          if (!hasOverlap) return layerIndex;
-        }
-        return layers.length;
-      };
-
-      const proposedEndTime = timelineStartTime + duration;
-      let selectedLayerIndex = findAvailableLayer(timelineStartTime, proposedEndTime, audioLayers);
-
-      if (selectedLayerIndex >= audioLayers.length) {
-        let earliestStartTime = timelineStartTime;
-        let foundLayer = -1;
-
-        for (let layerIndex = 0; layerIndex < audioLayers.length; layerIndex++) {
-          const layer = audioLayers[layerIndex];
-          let layerEndTime = 0;
-          layer.forEach((segment) => {
-            const segmentEnd = segment.startTime + segment.duration;
-            if (segmentEnd > layerEndTime) layerEndTime = segmentEnd;
-          });
-          if (layerEndTime < earliestStartTime) {
-            earliestStartTime = layerEndTime;
-            foundLayer = layerIndex;
-          }
-        }
-
-        if (foundLayer >= 0) {
-          selectedLayerIndex = foundLayer;
-          timelineStartTime = roundToThreeDecimals(earliestStartTime);
-        } else {
-          selectedLayerIndex = audioLayers.length;
-        }
-      }
-
-      const backendLayer = -(selectedLayerIndex + 1);
-
-      const newSegment = {
-        id: `temp-${Date.now()}`,
-        type: 'audio',
-        fileName: audio.fileName,
-        audioPath: `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(audio.fileName)}`,
-        displayName: audio.displayName || audio.fileName.split('/').pop(),
-        waveformImage: audio.waveformImage || '/images/audio.jpeg',
-        startTime: timelineStartTime,
-        duration: duration,
-        layer: backendLayer,
-        volume: 1.0,
-        startTimeWithinAudio: 0,
-        endTimeWithinAudio: duration,
-        timelineStartTime: timelineStartTime,
-        timelineEndTime: timelineStartTime + duration,
-        keyframes: {},
-      };
-
-      let updatedAudioLayers = audioLayers;
-      setAudioLayers((prevLayers) => {
+      // Explicitly add the segment to videoLayers with isElement: true
+      setVideoLayers((prevLayers) => {
         const newLayers = [...prevLayers];
-        while (newLayers.length <= selectedLayerIndex) newLayers.push([]);
-        newLayers[selectedLayerIndex].push(newSegment);
-        updatedAudioLayers = newLayers;
+        while (newLayers.length <= selectedLayer) newLayers.push([]);
+        const exists = newLayers[selectedLayer].some((segment) => segment.id === newSegment.id);
+        if (!exists) {
+          newLayers[selectedLayer].push({ ...newSegment, isElement: true }); // Ensure isElement is set
+        } else {
+          console.warn(`Segment with id ${newSegment.id} already exists in layer ${selectedLayer}`);
+        }
         return newLayers;
       });
 
@@ -736,64 +577,206 @@ const ProjectEditor = () => {
       preloadMedia();
       saveHistory();
 
-      const response = await axios.post(
-        `${API_BASE_URL}/projects/${projectId}/add-project-audio-to-timeline`,
-        {
-          audioFileName: audio.fileName,
-          layer: backendLayer,
-          timelineStartTime: roundToThreeDecimals(timelineStartTime),
-          timelineEndTime: roundToThreeDecimals(timelineStartTime + duration),
-          startTime: roundToThreeDecimals(0),
-          endTime: roundToThreeDecimals(duration),
-          volume: 1.0,
-        },
-        { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const newAudioSegment = response.data;
-
-      setAudioLayers((prevLayers) => {
-        const newLayers = [...prevLayers];
-        newLayers[selectedLayerIndex] = newLayers[selectedLayerIndex].map((item) =>
-          item.id === newSegment.id
-            ? {
-                ...item,
-                id: newAudioSegment.id || item.id,
-                volume: newAudioSegment.volume || 1.0,
-                keyframes: newAudioSegment.keyframes || {},
-                startTimeWithinAudio: roundToThreeDecimals(newAudioSegment.startTime || 0),
-                endTimeWithinAudio: roundToThreeDecimals(newAudioSegment.endTime || duration),
-                duration: roundToThreeDecimals(newAudioSegment.timelineEndTime - newAudioSegment.timelineStartTime),
-                timelineStartTime: roundToThreeDecimals(newAudioSegment.timelineStartTime),
-                timelineEndTime: roundToThreeDecimals(newAudioSegment.timelineEndTime),
-              }
-            : item
-        );
-        updatedAudioLayers = newLayers;
-        return newLayers;
-      });
-
-      autoSaveProject(videoLayers, updatedAudioLayers);
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        autoSaveProject(videoLayers, audioLayers);
+      }, 1000);
     } catch (error) {
-      console.error('Error adding audio to timeline:', error.response?.data || error.message);
-      setAudioLayers((prevLayers) => {
-        const newLayers = [...prevLayers];
-        newLayers.forEach((layer, index) => {
-          newLayers[index] = layer.filter((item) => !item.id.startsWith('temp-'));
-        });
-        return newLayers;
-      });
-      let maxEndTime = 0;
-      [...videoLayers, ...audioLayers].forEach((layer) => {
-        layer.forEach((item) => {
-          const endTime = item.startTime + item.duration;
-          if (endTime > maxEndTime) maxEndTime = endTime;
-        });
-      });
-      setTotalDuration(maxEndTime);
-      alert('Failed to add audio to timeline. Please try again.');
+      console.error('Error adding element to timeline:', error);
+      alert('Failed to add element to timeline. Please try again.');
     }
   };
+
+  const handleAudioClick = debounce(async (audio, isDragEvent = false) => {
+      if (uploading || isDragEvent) return;
+      try {
+        const token = localStorage.getItem('token');
+        if (!sessionId || !projectId || !token) {
+          throw new Error('Missing sessionId, projectId, or token');
+        }
+
+        const duration = audio.duration || 5;
+        let timelineStartTime = roundToThreeDecimals(currentTime);
+
+        const findAvailableLayer = (start, end, layers) => {
+          for (let layerIndex = 0; layerIndex < layers.length; layerIndex++) {
+            const hasOverlap = layers[layerIndex].some((segment) => {
+              const segmentStart = segment.startTime;
+              const segmentEnd = segmentStart + segment.duration;
+              return start < segmentEnd && end > segmentStart;
+            });
+            if (!hasOverlap) return layerIndex;
+          }
+          return layers.length;
+        };
+
+        const proposedEndTime = timelineStartTime + duration;
+        let selectedLayerIndex = findAvailableLayer(timelineStartTime, proposedEndTime, audioLayers);
+
+        if (selectedLayerIndex >= audioLayers.length) {
+          let earliestStartTime = timelineStartTime;
+          let foundLayer = -1;
+
+          for (let layerIndex = 0; layerIndex < audioLayers.length; layerIndex++) {
+            const layer = audioLayers[layerIndex];
+            let layerEndTime = 0;
+            layer.forEach((segment) => {
+              const segmentEnd = segment.startTime + segment.duration;
+              if (segmentEnd > layerEndTime) layerEndTime = segmentEnd;
+            });
+            if (layerEndTime < earliestStartTime) {
+              earliestStartTime = layerEndTime;
+              foundLayer = layerIndex;
+            }
+          }
+
+          if (foundLayer >= 0) {
+            selectedLayerIndex = foundLayer;
+            timelineStartTime = roundToThreeDecimals(earliestStartTime);
+          } else {
+            selectedLayerIndex = audioLayers.length;
+          }
+        }
+
+        const backendLayer = -(selectedLayerIndex + 1);
+
+        // Generate unique temporary ID
+        const doesIdExist = (id) => {
+          return audioLayers.some((layer) => layer.some((segment) => segment.id === id));
+        };
+        let tempId = `temp-${uuidv4()}`;
+        while (doesIdExist(tempId)) {
+          tempId = `temp-${uuidv4()}`;
+        }
+
+        const newSegment = {
+          id: tempId,
+          type: 'audio',
+          fileName: audio.fileName,
+          audioPath: `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(audio.fileName)}`,
+          displayName: audio.displayName || audio.fileName.split('/').pop(),
+          waveformImage: audio.waveformImage || '/images/audio.jpeg',
+          startTime: timelineStartTime,
+          duration: duration,
+          layer: backendLayer,
+          volume: 1.0,
+          startTimeWithinAudio: 0,
+          endTimeWithinAudio: duration,
+          timelineStartTime: timelineStartTime,
+          timelineEndTime: timelineStartTime + duration,
+          keyframes: {},
+        };
+
+        let updatedAudioLayers = audioLayers;
+        setAudioLayers((prevLayers) => {
+          const newLayers = [...prevLayers];
+          while (newLayers.length <= selectedLayerIndex) newLayers.push([]);
+
+          // Check for existing segment with the same ID
+          let existingLayerIndex = -1;
+          let existingSegment = null;
+          for (let i = 0; i < newLayers.length; i++) {
+            const found = newLayers[i].find((s) => s.id === newSegment.id);
+            if (found) {
+              existingSegment = found;
+              existingLayerIndex = i;
+              break;
+            }
+          }
+
+          if (existingSegment) {
+            console.warn(`Segment with ID ${newSegment.id} already exists in layer ${existingLayerIndex}. Updating instead.`);
+            newLayers[existingLayerIndex] = newLayers[existingLayerIndex].map((s) =>
+              s.id === newSegment.id ? { ...s, ...newSegment, layer: backendLayer } : s
+            );
+          } else {
+            newLayers[selectedLayerIndex].push(newSegment);
+          }
+
+          updatedAudioLayers = newLayers;
+          return newLayers;
+        });
+
+        setTotalDuration((prev) => Math.max(prev, timelineStartTime + duration));
+        preloadMedia();
+        saveHistory();
+
+        const response = await axios.post(
+          `${API_BASE_URL}/projects/${projectId}/add-project-audio-to-timeline`,
+          {
+            audioFileName: audio.fileName,
+            layer: backendLayer,
+            timelineStartTime: roundToThreeDecimals(timelineStartTime),
+            timelineEndTime: roundToThreeDecimals(timelineStartTime + duration),
+            startTime: roundToThreeDecimals(0),
+            endTime: roundToThreeDecimals(duration),
+            volume: 1.0,
+          },
+          { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        const newAudioSegment = response.data;
+
+        if (!newAudioSegment.audioSegmentId) {
+          throw new Error('Backend did not return audioSegmentId');
+        }
+
+        // Ensure backend ID is unique
+        let finalSegmentId = newAudioSegment.audioSegmentId;
+        if (doesIdExist(finalSegmentId)) {
+          console.warn(`Backend returned duplicate audioSegmentId ${finalSegmentId}. Generating new ID.`);
+          finalSegmentId = `${finalSegmentId}-${uuidv4()}`;
+        }
+
+        setAudioLayers((prevLayers) => {
+          const newLayers = prevLayers.map((layer, index) => {
+            if (index === selectedLayerIndex) {
+              return layer.map((item) =>
+                item.id === tempId
+                  ? {
+                      ...item,
+                      id: finalSegmentId,
+                      volume: newAudioSegment.volume || 1.0,
+                      keyframes: newAudioSegment.keyframes || {},
+                      startTimeWithinAudio: roundToThreeDecimals(newAudioSegment.startTime || 0),
+                      endTimeWithinAudio: roundToThreeDecimals(newAudioSegment.endTime || duration),
+                      duration: roundToThreeDecimals(
+                        newAudioSegment.timelineEndTime - newAudioSegment.timelineStartTime
+                      ),
+                      timelineStartTime: roundToThreeDecimals(newAudioSegment.timelineStartTime),
+                      timelineEndTime: roundToThreeDecimals(newAudioSegment.timelineEndTime),
+                      layer: newAudioSegment.layer || backendLayer,
+                    }
+                  : item
+              );
+            }
+            return layer;
+          });
+          updatedAudioLayers = newLayers;
+          return newLayers;
+        });
+
+        autoSaveProject(videoLayers, updatedAudioLayers);
+      } catch (error) {
+        console.error('Error adding audio to timeline:', error.response?.data || error.message);
+        setAudioLayers((prevLayers) => {
+          const newLayers = [...prevLayers];
+          newLayers.forEach((layer, index) => {
+            newLayers[index] = layer.filter((item) => !item.id.startsWith('temp-'));
+          });
+          return newLayers;
+        });
+        let maxEndTime = 0;
+        [...videoLayers, ...audioLayers].forEach((layer) => {
+          layer.forEach((item) => {
+            const endTime = item.startTime + item.duration;
+            if (endTime > maxEndTime) maxEndTime = endTime;
+          });
+        });
+        setTotalDuration(maxEndTime);
+        alert('Failed to add audio to timeline. Please try again.');
+      }
+    }, 300);
 
   const toggleTransitionsPanel = () => {
     setIsTransitionsOpen((prev) => !prev);
@@ -990,8 +973,13 @@ const ProjectEditor = () => {
         backgroundOpacity: segment.backgroundOpacity ?? 1.0,
         backgroundBorderWidth: segment.backgroundBorderWidth ?? 0,
         backgroundBorderColor: segment.backgroundBorderColor || '#000000',
+        backgroundH: segment.backgroundH ?? 0, // Ensure this is included
+        backgroundW: segment.backgroundW ?? 0, // Ensure this is included
         backgroundPadding: segment.backgroundPadding ?? 0,
         backgroundBorderRadius: segment.backgroundBorderRadius ?? 0,
+        textBorderColor: segment.textBorderColor || 'transparent', // Added
+        textBorderWidth: segment.textBorderWidth ?? 0, // Added
+        textBorderOpacity: segment.textBorderOpacity ?? 1.0, // Added
       });
       setIsTextToolOpen(true);
     } else {
@@ -1019,8 +1007,12 @@ const ProjectEditor = () => {
                 backgroundOpacity: newSettings.backgroundOpacity,
                 backgroundBorderWidth: newSettings.backgroundBorderWidth,
                 backgroundBorderColor: newSettings.backgroundBorderColor,
-                backgroundPadding: newSettings.backgroundPadding,
+                backgroundH: newSettings.backgroundH,
+                backgroundW: newSettings.backgroundW,
                 backgroundBorderRadius: newSettings.backgroundBorderRadius,
+                textBorderColor: newSettings.textBorderColor,
+                textBorderWidth: newSettings.textBorderWidth,
+                textBorderOpacity: newSettings.textBorderOpacity,
               }
             : item
         );
@@ -1028,13 +1020,19 @@ const ProjectEditor = () => {
       });
       setTempSegmentValues((prev) => ({
         ...prev,
-        scale: newSettings.scale, // Sync scale with textSettings
+        scale: newSettings.scale,
       }));
       setTotalDuration((prev) => {
         const layer = videoLayers[editingTextSegment.layer];
         const updatedSegment = layer.find((item) => item.id === editingTextSegment.id);
         return Math.max(prev, updatedSegment?.startTime + updatedSegment?.duration || prev);
       });
+
+      // Debounced auto-save for text changes
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        handleSaveTextSegment();
+      }, 1000);
     }
   };
 
@@ -1055,8 +1053,12 @@ const ProjectEditor = () => {
         backgroundOpacity: textSettings.backgroundOpacity,
         backgroundBorderWidth: textSettings.backgroundBorderWidth,
         backgroundBorderColor: textSettings.backgroundBorderColor,
-        backgroundPadding: textSettings.backgroundPadding,
+        backgroundH: textSettings.backgroundH,
+        backgroundW: textSettings.backgroundW,
         backgroundBorderRadius: textSettings.backgroundBorderRadius,
+        textBorderColor: textSettings.textBorderColor,
+        textBorderWidth: textSettings.textBorderWidth,
+        textBorderOpacity: textSettings.textBorderOpacity,
         keyframes: keyframes,
       };
       await axios.put(
@@ -1077,29 +1079,42 @@ const ProjectEditor = () => {
           backgroundOpacity: updatedTextSegment.backgroundOpacity,
           backgroundBorderWidth: updatedTextSegment.backgroundBorderWidth,
           backgroundBorderColor: updatedTextSegment.backgroundBorderColor,
-          backgroundPadding: updatedTextSegment.backgroundPadding,
+          backgroundH: updatedTextSegment.backgroundH,
+          backgroundW: updatedTextSegment.backgroundW,
           backgroundBorderRadius: updatedTextSegment.backgroundBorderRadius,
+          textBorderColor: updatedTextSegment.textBorderColor,
+          textBorderWidth: updatedTextSegment.textBorderWidth,
+          textBorderOpacity: updatedTextSegment.textBorderOpacity,
           keyframes: updatedTextSegment.keyframes,
         },
         { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
       );
 
       // Update videoLayers with the latest segment data
+      let updatedVideoLayers = videoLayers;
       setVideoLayers((prevLayers) => {
         const newLayers = [...prevLayers];
         newLayers[editingTextSegment.layer] = newLayers[editingTextSegment.layer].map((item) =>
           item.id === editingTextSegment.id ? { ...updatedTextSegment } : item
         );
+        updatedVideoLayers = newLayers;
         return newLayers;
       });
 
-      setIsTextToolOpen(false);
       saveHistory();
 
       // Fetch updated segment data to ensure synchronization
       await fetchKeyframes(editingTextSegment.id, 'text');
+
+      // Trigger auto-save of the project with updated videoLayers
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        autoSaveProject(updatedVideoLayers, audioLayers);
+        console.log('Auto-saved project after text segment save:', editingTextSegment.id);
+      }, 1000);
     } catch (error) {
       console.error('Error saving text segment:', error);
+      alert('Failed to save text segment. Please try again.');
     }
   };
 
@@ -1113,34 +1128,14 @@ const ProjectEditor = () => {
         startTime = Math.max(startTime, lastSegment.startTime + lastSegment.duration);
       }
       const duration = textSettings.duration;
-      const response = await axios.post(
-        `${API_BASE_URL}/projects/${projectId}/add-text`,
-        {
-          text: textSettings.text,
-          layer: 0,
-          timelineStartTime: startTime,
-          timelineEndTime: startTime + duration,
-          fontFamily: textSettings.fontFamily,
-          scale: textSettings.scale || 1.0,
-          fontColor: textSettings.fontColor,
-          backgroundColor: textSettings.backgroundColor,
-          positionX: 0,
-          positionY: 0,
-          alignment: textSettings.alignment,
-          backgroundOpacity: textSettings.backgroundOpacity,
-          backgroundBorderWidth: textSettings.backgroundBorderWidth,
-          backgroundBorderColor: textSettings.backgroundBorderColor,
-          backgroundPadding: textSettings.backgroundPadding,
-          backgroundBorderRadius: textSettings.backgroundBorderRadius,
-        },
-        { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
-      );
-      const newTextSegment = response.data;
-      const newSegment = {
-        id: newTextSegment.id,
+
+      // Create temporary segment with UUID
+      const tempSegmentId = `temp-${uuidv4()}`;
+      const tempSegment = {
+        id: tempSegmentId,
         type: 'text',
         text: textSettings.text,
-        startTime: startTime,
+        startTime: roundToThreeDecimals(startTime),
         duration: duration,
         layer: 0,
         fontFamily: textSettings.fontFamily,
@@ -1153,35 +1148,115 @@ const ProjectEditor = () => {
         backgroundOpacity: textSettings.backgroundOpacity,
         backgroundBorderWidth: textSettings.backgroundBorderWidth,
         backgroundBorderColor: textSettings.backgroundBorderColor,
-        backgroundPadding: textSettings.backgroundPadding,
+        backgroundH: textSettings.backgroundH,
+        backgroundW: textSettings.backgroundW,
         backgroundBorderRadius: textSettings.backgroundBorderRadius,
+        textBorderColor: textSettings.textBorderColor, // Added
+        textBorderWidth: textSettings.textBorderWidth, // Added
+        textBorderOpacity: textSettings.textBorderOpacity, // Added
+        keyframes: {},
       };
 
-      let updatedVideoLayers = videoLayers; // Store updated layers for auto-save
+      // Add temporary segment to videoLayers for instant rendering
+      let updatedVideoLayers = videoLayers;
       setVideoLayers((prevLayers) => {
         const newLayers = [...prevLayers];
-        newLayers[0].push(newSegment);
-        updatedVideoLayers = newLayers; // Update the variable for auto-save
+        newLayers[0] = [...(newLayers[0] || []), tempSegment];
+        updatedVideoLayers = newLayers;
+        return newLayers;
+      });
+
+      // Make API call
+      const response = await axios.post(
+        `${API_BASE_URL}/projects/${projectId}/add-text`,
+        {
+          text: textSettings.text,
+          layer: 0,
+          timelineStartTime: roundToThreeDecimals(startTime),
+          timelineEndTime: roundToThreeDecimals(startTime + duration),
+          fontFamily: textSettings.fontFamily,
+          scale: textSettings.scale || 1.0,
+          fontColor: textSettings.fontColor,
+          backgroundColor: textSettings.backgroundColor,
+          positionX: 0,
+          positionY: 0,
+          alignment: textSettings.alignment,
+          backgroundOpacity: textSettings.backgroundOpacity,
+          backgroundBorderWidth: textSettings.backgroundBorderWidth,
+          backgroundBorderColor: textSettings.backgroundBorderColor,
+          backgroundH: textSettings.backgroundH,
+          backgroundW: textSettings.backgroundW,
+          backgroundBorderRadius: textSettings.backgroundBorderRadius,
+          textBorderColor: textSettings.textBorderColor, // Added
+          textBorderWidth: textSettings.textBorderWidth, // Added
+          textBorderOpacity: textSettings.textBorderOpacity, // Added
+        },
+        { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const newTextSegment = response.data;
+
+      // Validate response
+      if (!newTextSegment.textSegmentId) {
+        throw new Error('Backend did not return textSegmentId');
+      }
+
+      // Update temporary segment with backend data
+      const updatedSegment = {
+        id: newTextSegment.textSegmentId,
+        type: 'text',
+        text: newTextSegment.text,
+        startTime: roundToThreeDecimals(newTextSegment.timelineStartTime),
+        duration: roundToThreeDecimals(newTextSegment.timelineEndTime - newTextSegment.timelineStartTime),
+        layer: newTextSegment.layer,
+        fontFamily: newTextSegment.fontFamily,
+        scale: newTextSegment.scale || 1.0,
+        fontColor: newTextSegment.fontColor,
+        backgroundColor: newTextSegment.backgroundColor,
+        positionX: newTextSegment.positionX || 0,
+        positionY: newTextSegment.positionY || 0,
+        alignment: newTextSegment.alignment,
+        backgroundOpacity: newTextSegment.backgroundOpacity ?? 1.0,
+        backgroundBorderWidth: newTextSegment.backgroundBorderWidth ?? 0,
+        backgroundBorderColor: newTextSegment.backgroundBorderColor || '#000000',
+        backgroundH: newTextSegment.backgroundH ?? 0,
+        backgroundW: newTextSegment.backgroundW ?? 0,
+        backgroundBorderRadius: newTextSegment.backgroundBorderRadius ?? 0,
+        textBorderColor: newTextSegment.textBorderColor || 'transparent', // Added
+        textBorderWidth: newTextSegment.textBorderWidth ?? 0, // Added
+        textBorderOpacity: newTextSegment.textBorderOpacity ?? 1.0, // Added
+        keyframes: newTextSegment.keyframes || {},
+      };
+
+      setVideoLayers((prevLayers) => {
+        const newLayers = [...prevLayers];
+        newLayers[0] = newLayers[0].map((item) =>
+          item.id === tempSegmentId ? updatedSegment : item
+        );
+        updatedVideoLayers = newLayers;
         return newLayers;
       });
 
       setTotalDuration((prev) => Math.max(prev, startTime + duration));
-      setSelectedSegment(newSegment);
-      setEditingTextSegment(newSegment);
+      setSelectedSegment(updatedSegment);
+      setEditingTextSegment(updatedSegment);
       setTextSettings({
-        text: newSegment.text,
-        fontFamily: newSegment.fontFamily,
-        scale: newSegment.scale,
-        fontColor: newSegment.fontColor,
-        backgroundColor: newSegment.backgroundColor,
-        duration: newSegment.duration,
-        alignment: newSegment.alignment,
-        backgroundOpacity: newSegment.backgroundOpacity,
-        backgroundBorderWidth: newSegment.backgroundBorderWidth,
-        backgroundBorderColor: newSegment.backgroundBorderColor,
-        backgroundPadding: newSegment.backgroundPadding,
-        backgroundBorderRadius: newSegment.backgroundBorderRadius,
-        keyframes: newSegment.keyframes,
+        text: updatedSegment.text,
+        fontFamily: updatedSegment.fontFamily,
+        scale: updatedSegment.scale,
+        fontColor: updatedSegment.fontColor,
+        backgroundColor: updatedSegment.backgroundColor,
+        duration: updatedSegment.duration,
+        alignment: updatedSegment.alignment,
+        backgroundOpacity: updatedSegment.backgroundOpacity,
+        backgroundBorderWidth: updatedSegment.backgroundBorderWidth,
+        backgroundBorderColor: updatedSegment.backgroundBorderColor,
+        backgroundH: updatedSegment.backgroundH,
+        backgroundW: updatedSegment.backgroundW,
+        backgroundBorderRadius: updatedSegment.backgroundBorderRadius,
+        textBorderColor: updatedSegment.textBorderColor, // Added
+        textBorderWidth: updatedSegment.textBorderWidth, // Added
+        textBorderOpacity: updatedSegment.textBorderOpacity, // Added
       });
       setIsTextToolOpen(true);
       preloadMedia();
@@ -1266,13 +1341,19 @@ const ProjectEditor = () => {
         let audioFiles =
           typeof project.audioJson === 'string' ? JSON.parse(project.audioJson) : project.audioJson;
         if (Array.isArray(audioFiles)) {
-          const updatedAudios = audioFiles.map((audio) => ({
-            id: audio.audioPath || `audio-${audio.audioFileName}-${Date.now()}`,
-            fileName: audio.audioFileName,
-            displayName: audio.audioFileName.split('/').pop(),
-            waveformImage: '/images/audio.jpeg',
-            url: `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(audio.audioFileName)}`,
-          }));
+          const updatedAudios = audioFiles.map((audio) => {
+            const fullFileName = audio.audioPath.split('/').pop();
+            const originalFileName = fullFileName.replace(`${projectId}_`, '').replace(/^\d+_/, '');
+            return {
+              id: audio.audioPath || `audio-${fullFileName}-${Date.now()}`,
+              fileName: fullFileName,
+              displayName: originalFileName,
+              audioPath: `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(fullFileName)}`,
+              waveformImage: audio.waveformPath
+                ? `${API_BASE_URL}/projects/${projectId}/waveforms/${encodeURIComponent(audio.waveformPath.split('/').pop())}`
+                : '/images/audio.jpeg',
+            };
+          });
           setAudios(updatedAudios);
         } else {
           setAudios([]);
@@ -1285,7 +1366,6 @@ const ProjectEditor = () => {
       setAudios([]);
     }
   };
-
   const fetchPhotos = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -1548,20 +1628,29 @@ const ProjectEditor = () => {
                   while (newVideoLayers.length <= layerIndex) newVideoLayers.push([]);
                 }
                 newVideoLayers[layerIndex].push({
-                  id: textSegment.id,
+                  id: textSegment.textSegmentId,
                   type: 'text',
                   text: textSegment.text,
                   startTime: textSegment.timelineStartTime || 0,
                   duration: (textSegment.timelineEndTime - textSegment.timelineStartTime) || 0,
                   layer: layerIndex,
                   fontFamily: textSegment.fontFamily || 'Arial',
-                  scale: textSegment.scale || 1.0, // Use scale instead of
+                  scale: textSegment.scale || 1.0,
                   fontColor: textSegment.fontColor || '#FFFFFF',
                   backgroundColor: textSegment.backgroundColor || 'transparent',
                   positionX: textSegment.positionX || 0,
                   positionY: textSegment.positionY || 0,
-                  alignment: textSegment.alignment || 'center', // Include alignment
-                  keyframes: textSegment.keyframes || {}, // Add keyframes
+                  alignment: textSegment.alignment || 'center',
+                  backgroundOpacity: textSegment.backgroundOpacity ?? 1.0,
+                  backgroundBorderWidth: textSegment.backgroundBorderWidth ?? 0,
+                  backgroundBorderColor: textSegment.backgroundBorderColor || '#000000',
+                  backgroundH: textSegment.backgroundH ?? 0,
+                  backgroundW: textSegment.backgroundW ?? 0,
+                  backgroundBorderRadius: textSegment.backgroundBorderRadius ?? 0,
+                  textBorderColor: textSegment.textBorderColor || 'transparent', // Added
+                  textBorderWidth: textSegment.textBorderWidth ?? 0, // Added
+                  textBorderOpacity: textSegment.textBorderOpacity ?? 1.0, // Added
+                  keyframes: textSegment.keyframes || {},
                 });
               }
             }
@@ -1644,154 +1733,97 @@ const ProjectEditor = () => {
   };
 
   const fetchElements = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('No token found in localStorage');
-        setElements([]);
-        return;
-      }
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.error('No token found in localStorage');
+          setElements([]);
+          return;
+        }
 
-      const response = await axios.get(`${API_BASE_URL}/projects/elements`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+        const response = await axios.get(`${API_BASE_URL}/api/global-elements`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-      const updatedElements = await Promise.all(
-        response.data.map(async (element) => {
-          const thumbnail = await new Promise((resolve) => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.src = `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(element.fileName)}`;
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const ctx = canvas.getContext('2d');
-              const maxWidth = 120;
-              const maxHeight = 80;
-              let width = img.width;
-              let height = img.height;
-              if (width > height) {
-                if (width > maxWidth) {
-                  height = (height * maxWidth) / width;
-                  width = maxWidth;
-                }
-              } else {
-                if (height > maxHeight) {
-                  width = (width * maxHeight) / height;
-                  height = maxHeight;
-                }
-              }
-              canvas.width = width;
-              canvas.height = height;
-              ctx.drawImage(img, 0, 0, width, height);
-              resolve(canvas.toDataURL('image/jpeg'));
+        console.log('Global elements response:', response.data); // Debug response
+
+        const updatedElements = response.data
+          .filter((element) => element.fileName && typeof element.fileName === 'string') // Filter valid elements
+          .map((element) => {
+            if (!element.fileName) {
+              console.warn('Element with missing fileName:', element);
+            }
+            return {
+              id: element.id || `element-${element.fileName || 'unknown'}-${Date.now()}`,
+              fileName: element.fileName || 'unknown.png', // Fallback
+              displayName: element.fileName || 'Untitled Element', // Use fileName directly
+              filePath: `${API_BASE_URL}/api/global-elements/${encodeURIComponent(element.fileName || 'unknown.png')}`,
+              thumbnail: `${API_BASE_URL}/api/global-elements/${encodeURIComponent(element.fileName || 'unknown.png')}`,
             };
-            img.onerror = () => resolve(null);
           });
-          return {
-            id: element.id || `element-${element.fileName}-${Date.now()}`,
-            fileName: element.fileName,
-            displayName: element.fileName.split('/').pop(),
-            filePath: `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(element.fileName)}`,
-            thumbnail,
-          };
-        })
-      );
-      setElements(updatedElements);
-    } catch (error) {
-      console.error('Error fetching elements:', error);
-      if (error.response?.status === 401) {
-        alert('Session expired. Please log in again.');
-        navigate('/login');
-      } else if (error.response?.status === 403) {
-        alert('You do not have permission to fetch elements. Please contact support.');
-      } else {
-        alert('Failed to fetch elements. Please try again.');
+
+        setElements(updatedElements);
+      } catch (error) {
+        console.error('Error fetching global elements:', error);
+        if (error.response?.status === 401) {
+          alert('Session expired. Please log in again.');
+          navigate('/login');
+        } else if (error.response?.status === 403) {
+          alert('You do not have permission to fetch elements. Please contact support.');
+        } else {
+          alert('Failed to fetch global elements. Please try again.');
+        }
+        setElements([]);
       }
-      setElements([]);
-    }
-  };
+    };
 
-  const handleElementUpload = async (event) => {
-    const files = Array.from(event.target.files);
-    if (files.length === 0) return;
+    const handleAudioUpload = async (event) => {
+      const files = Array.from(event.target.files);
+      if (files.length === 0) return;
 
-    const formData = new FormData();
-    files.forEach((file) => {
-      console.log('Appending file:', file.name);
-      formData.append('files', file);
-    });
-
-    try {
-      setUploading(true);
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      await axios.post(`${API_BASE_URL}/projects/elements/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${token}`,
-        },
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append('audio', file);
+        formData.append('audioFileNames', file.name);
       });
-      await fetchElements();
-    } catch (error) {
-      console.error('Error uploading elements:', error);
-      if (error.response?.status === 403) {
-        alert('You do not have permission to upload elements. Please contact support.');
-      } else if (error.response?.status === 401) {
-        alert('Session expired. Please log in again.');
-        navigate('/login');
-      } else {
-        alert('Failed to upload one or more elements. Please try again.');
-      }
-    } finally {
-      setUploading(false);
-    }
-  };
 
-  const handleAudioUpload = async (event) => {
-    const files = Array.from(event.target.files);
-    if (files.length === 0) return;
+      try {
+        setUploading(true);
+        const token = localStorage.getItem('token');
+        const response = await axios.post(
+          `${API_BASE_URL}/projects/${projectId}/upload-audio`,
+          formData,
+          { headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` } }
+        );
+        const { project, audioFiles } = response.data;
 
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append('audio', file);
-      formData.append('audioFileNames', file.name);
-    });
-
-    try {
-      setUploading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_BASE_URL}/projects/${projectId}/upload-audio`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` } }
-      );
-      const updatedProject = response.data;
-      if (updatedProject && updatedProject.audioJson) {
-        let audioFiles =
-          typeof updatedProject.audioJson === 'string'
-            ? JSON.parse(updatedProject.audioJson)
-            : updatedProject.audioJson;
-        if (Array.isArray(audioFiles)) {
-          const updatedAudios = audioFiles.map((audio) => ({
-            id: audio.audioPath || `audio-${audio.audioFileName}-${Date.now()}`,
-            fileName: audio.audioFileName,
-            displayName: audio.audioFileName.split('/').pop(),
-            audioPath: `${API_BASE_URL}/audio/projects/${projectId}/${encodeURIComponent(audio.audioFileName)}`,
-            waveformImage: '/images/audio.jpeg',
-          }));
+        // Update state with audioFiles from response
+        if (audioFiles && Array.isArray(audioFiles)) {
+          const updatedAudios = audioFiles.map((audio) => {
+            const fullFileName = audio.audioFileName.split('/').pop();
+            const originalFileName = fullFileName.replace(`${projectId}_`, '').replace(/^\d+_/, '');
+            return {
+              id: audio.audioPath || `audio-${fullFileName}-${Date.now()}`,
+              fileName: fullFileName,
+              displayName: originalFileName,
+              audioPath: `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(fullFileName)}`,
+              waveformImage: audio.waveformPath
+                ? `${API_BASE_URL}/projects/${projectId}/waveforms/${encodeURIComponent(audio.waveformPath.split('/').pop())}`
+                : '/images/audio.jpeg',
+            };
+          });
           setAudios(updatedAudios);
         }
+
+        // Fetch audios to ensure consistency
+        if (project) await fetchAudios();
+      } catch (error) {
+        console.error('Error uploading audio files:', error);
+        alert('Failed to upload one or more audio files. Please try again.');
+      } finally {
+        setUploading(false);
       }
-    } catch (error) {
-      console.error('Error uploading audio files:', error);
-      alert('Failed to upload one or more audio files. Please try again.');
-    } finally {
-      setUploading(false);
-    }
-  };
+    };
 
   const generateVideoThumbnail = async (video) => {
     if (!video || (!video.filePath && !video.filename)) return;
@@ -1901,8 +1933,7 @@ const ProjectEditor = () => {
     if (!sessionId || !projectId || uploading) return;
     try {
       const token = localStorage.getItem('token');
-      let startTime = roundToThreeDecimals(currentTime); // Use currentTime with precision
-      // Find the latest end time across all video layers to avoid overlap
+      let startTime = roundToThreeDecimals(currentTime);
       let maxEndTime = 0;
       videoLayers.forEach((layer) => {
         layer.forEach((segment) => {
@@ -1913,6 +1944,45 @@ const ProjectEditor = () => {
       startTime = Math.max(startTime, maxEndTime);
 
       const duration = style.duration || 5;
+
+      // Create temporary segment with UUID
+      const tempSegmentId = `temp-${uuidv4()}`;
+      const tempSegment = {
+        id: tempSegmentId,
+        type: 'text',
+        text: style.text,
+        startTime: roundToThreeDecimals(startTime),
+        duration: duration,
+        layer: 0,
+        fontFamily: style.fontFamily || 'Arial',
+        scale: style.scale || 1.0,
+        fontColor: style.fontColor || '#FFFFFF',
+        backgroundColor: style.backgroundColor || 'transparent',
+        positionX: style.positionX || 0,
+        positionY: style.positionY || 0,
+        alignment: style.alignment || 'center',
+        backgroundOpacity: style.backgroundOpacity ?? 1.0,
+        backgroundBorderWidth: style.backgroundBorderWidth ?? 0,
+        backgroundBorderColor: style.backgroundBorderColor || '#000000',
+        backgroundH: style.backgroundH ?? 0,
+        backgroundW: style.backgroundW ?? 0,
+        backgroundBorderRadius: style.backgroundBorderRadius ?? 0,
+        textBorderColor: style.textBorderColor || 'transparent', // Added
+        textBorderWidth: style.textBorderWidth ?? 0, // Added
+        textBorderOpacity: style.textBorderOpacity ?? 1.0, // Added
+        keyframes: {},
+      };
+
+      // Add temporary segment to videoLayers
+      let updatedVideoLayers = videoLayers;
+      setVideoLayers((prevLayers) => {
+        const newLayers = [...prevLayers];
+        newLayers[0] = [...(newLayers[0] || []), tempSegment];
+        updatedVideoLayers = newLayers;
+        return newLayers;
+      });
+
+      // Make API call
       const response = await axios.post(
         `${API_BASE_URL}/projects/${projectId}/add-text`,
         {
@@ -1930,74 +2000,87 @@ const ProjectEditor = () => {
           backgroundOpacity: style.backgroundOpacity ?? 1.0,
           backgroundBorderWidth: style.backgroundBorderWidth ?? 0,
           backgroundBorderColor: style.backgroundBorderColor || '#000000',
-          backgroundPadding: style.backgroundPadding ?? 0,
+          backgroundH: style.backgroundH ?? 0,
+          backgroundW: style.backgroundW ?? 0,
           backgroundBorderRadius: style.backgroundBorderRadius ?? 0,
+          textBorderColor: style.textBorderColor || 'transparent', // Added
+          textBorderWidth: style.textBorderWidth ?? 0, // Added
+          textBorderOpacity: style.textBorderOpacity ?? 1.0, // Added
         },
         { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
       );
+
       const newTextSegment = response.data;
-      const newSegment = {
-        id: newTextSegment.id,
+
+      // Validate response
+      if (!newTextSegment.textSegmentId) {
+        throw new Error('Backend did not return textSegmentId');
+      }
+
+      // Update temporary segment with backend data
+      const updatedSegment = {
+        id: newTextSegment.textSegmentId,
         type: 'text',
-        text: style.text,
-        startTime: roundToThreeDecimals(startTime),
-        duration: duration,
-        layer: 0,
-        fontFamily: style.fontFamily || 'Arial',
-        scale: style.scale || 1.0,
-        fontColor: style.fontColor || '#FFFFFF',
-        backgroundColor: style.backgroundColor || 'transparent',
-        positionX: style.positionX || 0,
-        positionY: style.positionY || 0,
-        alignment: style.alignment || 'center',
-        backgroundOpacity: style.backgroundOpacity ?? 1.0,
-        backgroundBorderWidth: style.backgroundBorderWidth ?? 0,
-        backgroundBorderColor: style.backgroundBorderColor || '#000000',
-        backgroundPadding: style.backgroundPadding ?? 0,
-        backgroundBorderRadius: style.backgroundBorderRadius ?? 0,
-        keyframes: {},
+        text: newTextSegment.text,
+        startTime: roundToThreeDecimals(newTextSegment.timelineStartTime),
+        duration: roundToThreeDecimals(newTextSegment.timelineEndTime - newTextSegment.timelineStartTime),
+        layer: newTextSegment.layer,
+        fontFamily: newTextSegment.fontFamily,
+        scale: newTextSegment.scale || 1.0,
+        fontColor: newTextSegment.fontColor,
+        backgroundColor: newTextSegment.backgroundColor,
+        positionX: newTextSegment.positionX || 0,
+        positionY: newTextSegment.positionY || 0,
+        alignment: newTextSegment.alignment,
+        backgroundOpacity: newTextSegment.backgroundOpacity ?? 1.0,
+        backgroundBorderWidth: newTextSegment.backgroundBorderWidth ?? 0,
+        backgroundBorderColor: newTextSegment.backgroundBorderColor || '#000000',
+        backgroundH: newTextSegment.backgroundH ?? 0,
+        backgroundW: newTextSegment.backgroundW ?? 0,
+        backgroundBorderRadius: newTextSegment.backgroundBorderRadius ?? 0,
+        textBorderColor: newTextSegment.textBorderColor || 'transparent', // Added
+        textBorderWidth: newTextSegment.textBorderWidth ?? 0, // Added
+        textBorderOpacity: newTextSegment.textBorderOpacity ?? 1.0, // Added
+        keyframes: newTextSegment.keyframes || {},
       };
 
-      // Update videoLayers and ensure the new segment is added
       setVideoLayers((prevLayers) => {
         const newLayers = [...prevLayers];
-        if (!newLayers[0]) newLayers[0] = []; // Ensure layer 0 exists
-        newLayers[0] = [...newLayers[0], newSegment]; // Append new segment
+        newLayers[0] = newLayers[0].map((item) =>
+          item.id === tempSegmentId ? updatedSegment : item
+        );
+        updatedVideoLayers = newLayers;
         return newLayers;
       });
 
-      // Update totalDuration to include the new segment's end time
-      setTotalDuration((prev) => {
-        const newEndTime = startTime + duration;
-        return Math.max(prev, roundToThreeDecimals(newEndTime));
-      });
-
-      // Set the new segment as selected and open the text tool
-      setSelectedSegment(newSegment);
-      setEditingTextSegment(newSegment);
+      setTotalDuration((prev) => Math.max(prev, startTime + duration));
+      setSelectedSegment(updatedSegment);
+      setEditingTextSegment(updatedSegment);
       setTextSettings({
-        text: newSegment.text,
-        fontFamily: newSegment.fontFamily,
-        scale: newSegment.scale,
-        fontColor: newSegment.fontColor,
-        backgroundColor: newSegment.backgroundColor,
-        duration: newSegment.duration,
-        alignment: newSegment.alignment,
-        backgroundOpacity: newSegment.backgroundOpacity,
-        backgroundBorderWidth: newSegment.backgroundBorderWidth,
-        backgroundBorderColor: newSegment.backgroundBorderColor,
-        backgroundPadding: newSegment.backgroundPadding,
-        backgroundBorderRadius: newSegment.backgroundBorderRadius,
+        text: updatedSegment.text,
+        fontFamily: updatedSegment.fontFamily,
+        scale: updatedSegment.scale,
+        fontColor: updatedSegment.fontColor,
+        backgroundColor: updatedSegment.backgroundColor,
+        duration: updatedSegment.duration,
+        alignment: updatedSegment.alignment,
+        backgroundOpacity: updatedSegment.backgroundOpacity,
+        backgroundBorderWidth: updatedSegment.backgroundBorderWidth,
+        backgroundBorderColor: updatedSegment.backgroundBorderColor,
+        backgroundH: updatedSegment.backgroundH,
+        backgroundW: updatedSegment.backgroundW,
+        backgroundBorderRadius: updatedSegment.backgroundBorderRadius,
+        textBorderColor: updatedSegment.textBorderColor, // Added
+        textBorderWidth: updatedSegment.textBorderWidth, // Added
+        textBorderOpacity: updatedSegment.textBorderOpacity, // Added
       });
       setIsTextToolOpen(true);
-
-      // Preload media and save history
       preloadMedia();
       saveHistory();
 
-      // Trigger auto-save with updated layers
+      // Trigger auto-save
       setTimeout(() => {
-        autoSaveProject(videoLayers, audioLayers);
+        autoSaveProject(updatedVideoLayers, audioLayers);
       }, 1000);
     } catch (error) {
       console.error('Error adding text style to timeline:', error);
@@ -2076,79 +2159,81 @@ const ProjectEditor = () => {
   }
 }, 300);
 
-const addImageToTimeline = async (imageFileName, layer, timelineStartTime, timelineEndTime, isElement = false) => {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(
-      `${API_BASE_URL}/projects/${projectId}/add-project-image-to-timeline`,
-      {
-        imageFileName,
-        layer: layer || 0,
-        timelineStartTime: timelineStartTime || 0,
-        timelineEndTime: timelineEndTime || timelineStartTime + 5,
-        isElement,
-      },
-      { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
-    );
+  const addImageToTimeline = async (imageFileName, layer, timelineStartTime, timelineEndTime, isElement = false) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        `${API_BASE_URL}/projects/${projectId}/add-project-image-to-timeline`,
+        {
+          imageFileName,
+          layer: layer || 0,
+          timelineStartTime: timelineStartTime || 0,
+          timelineEndTime: timelineEndTime || timelineStartTime + 5,
+          isElement,
+        },
+        { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
+      );
 
-    const newImageSegment = response.data;
-    if (!newImageSegment) {
-      throw new Error(`Failed to add image segment for ${imageFileName}`);
-    }
-
-    const photo = photos.find((p) => p.fileName === imageFileName);
-    if (!photo && !isElement) {
-      throw new Error(`Photo with fileName ${imageFileName} not found`);
-    }
-
-    const newSegment = {
-      id: newImageSegment.id,
-      type: 'image',
-      fileName: imageFileName,
-      filePath: isElement
-        ? `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(imageFileName)}`
-        : photo?.filePath,
-      startTime: newImageSegment.timelineStartTime,
-      duration: newImageSegment.timelineEndTime - newImageSegment.timelineStartTime,
-      layer: layer || 0,
-      positionX: newImageSegment.positionX || 0,
-      positionY: newImageSegment.positionY || 0,
-      scale: newImageSegment.scale || 1,
-      opacity: newImageSegment.opacity || 1,
-      filters: newImageSegment.filters || [],
-      keyframes: newImageSegment.keyframes || {},
-      thumbnail: photo?.thumbnail,
-    };
-
-    let updatedVideoLayers = videoLayers;
-    setVideoLayers((prevLayers) => {
-      const newLayers = [...prevLayers];
-      while (newLayers.length <= layer) newLayers.push([]);
-      const exists = newLayers[layer].some((segment) => segment.id === newSegment.id);
-      if (!exists) {
-        newLayers[layer].push(newSegment);
-      } else {
-        console.warn(`Segment with id ${newSegment.id} already exists in layer ${layer}`);
+      const newImageSegment = response.data;
+      if (!newImageSegment) {
+        throw new Error(`Failed to add image segment for ${imageFileName}`);
       }
-      updatedVideoLayers = newLayers;
-      return newLayers;
-    });
 
-    setTotalDuration((prev) => Math.max(prev, newSegment.startTime + newSegment.duration));
-    preloadMedia();
+      const photo = photos.find((p) => p.fileName === imageFileName);
+      if (!photo && !isElement) {
+        throw new Error(`Photo with fileName ${imageFileName} not found`);
+      }
 
-    if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
-    updateTimeoutRef.current = setTimeout(() => {
-      autoSaveProject(updatedVideoLayers, audioLayers);
-    }, 1000);
+      // Ensure isElement is set based on the input parameter
+      const newSegment = {
+        id: newImageSegment.id,
+        type: 'image',
+        fileName: imageFileName,
+        filePath: isElement
+          ? `${API_BASE_URL}/projects/${projectId}/images/${encodeURIComponent(imageFileName)}`
+          : photo?.filePath,
+        startTime: newImageSegment.timelineStartTime,
+        duration: newImageSegment.timelineEndTime - newImageSegment.timelineStartTime,
+        layer: layer || 0,
+        positionX: newImageSegment.positionX || 0,
+        positionY: newImageSegment.positionY || 0,
+        scale: newImageSegment.scale || 1,
+        opacity: newImageSegment.opacity || 1,
+        filters: newImageSegment.filters || [],
+        keyframes: newImageSegment.keyframes || {},
+        thumbnail: photo?.thumbnail,
+        isElement: isElement || newImageSegment.element || false, // Explicitly set isElement
+      };
 
-    saveHistory();
-    return newSegment;
-  } catch (error) {
-    console.error('Error adding image to timeline:', error);
-    throw error;
-  }
-};
+      let updatedVideoLayers = videoLayers;
+      setVideoLayers((prevLayers) => {
+        const newLayers = [...prevLayers];
+        while (newLayers.length <= layer) newLayers.push([]);
+        const exists = newLayers[layer].some((segment) => segment.id === newSegment.id);
+        if (!exists) {
+          newLayers[layer].push(newSegment);
+        } else {
+          console.warn(`Segment with id ${newSegment.id} already exists in layer ${layer}`);
+        }
+        updatedVideoLayers = newLayers;
+        return newLayers;
+      });
+
+      setTotalDuration((prev) => Math.max(prev, newSegment.startTime + newSegment.duration));
+      preloadMedia();
+
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = setTimeout(() => {
+        autoSaveProject(updatedVideoLayers, audioLayers);
+      }, 1000);
+
+      saveHistory();
+      return newSegment;
+    } catch (error) {
+      console.error('Error adding image to timeline:', error);
+      throw error;
+    }
+  };
 
 const addVideoToTimeline = async (videoPath, layer, timelineStartTime, timelineEndTime, startTimeWithinVideo, endTimeWithinVideo) => {
   try {
@@ -2549,6 +2634,9 @@ const handleSegmentSelect = async (segment) => {
             );
             return newLayers;
           });
+
+          // Force re-render of VideoPreview to ensure filters are applied
+          setCurrentTime((prev) => prev + 0);
         } catch (error) {
           console.error('Error fetching filters for segment:', error);
           setAppliedFilters([]);
@@ -3047,6 +3135,9 @@ const saveSegmentChanges = async (updatedKeyframes = keyframes, tempValues = tem
           backgroundBorderColor: textSettings.backgroundBorderColor,
           backgroundPadding: textSettings.backgroundPadding,
           backgroundBorderRadius: textSettings.backgroundBorderRadius,
+          textBorderColor: textSettings.textBorderColor, // Added
+          textBorderWidth: textSettings.textBorderWidth, // Added
+          textBorderOpacity: textSettings.textBorderOpacity, // Added
           keyframes: updatedKeyframes,
         };
 
@@ -3083,6 +3174,9 @@ const saveSegmentChanges = async (updatedKeyframes = keyframes, tempValues = tem
               backgroundBorderColor: textPayload.backgroundBorderColor,
               backgroundPadding: textPayload.backgroundPadding,
               backgroundBorderRadius: textPayload.backgroundBorderRadius,
+              textBorderColor: textPayload.textBorderColor, // Added
+              textBorderWidth: textPayload.textBorderWidth, // Added
+              textBorderOpacity: textPayload.textBorderOpacity, // Added
               keyframes: textPayload.keyframes,
             };
           }
@@ -3277,7 +3371,10 @@ const updateFilters = async (newFilterParams) => {
       }
     }
 
+    // Update appliedFilters state
     setAppliedFilters(updatedFilters);
+
+    // Update videoLayers with the new filters
     let updatedVideoLayers = videoLayers;
     setVideoLayers((prevLayers) => {
       const newLayers = [...prevLayers];
@@ -3287,15 +3384,23 @@ const updateFilters = async (newFilterParams) => {
       updatedVideoLayers = newLayers;
       return newLayers;
     });
+
+    // Update selectedSegment to propagate filter changes
     setSelectedSegment((prev) => ({ ...prev, filters: updatedFilters }));
 
+    // Force VideoPreview to re-render
+    setCurrentTime((prev) => prev + 0); // Micro-update to trigger re-render
+
+    // Schedule auto-save
     if (filterUpdateTimeoutRef.current) clearTimeout(filterUpdateTimeoutRef.current);
     filterUpdateTimeoutRef.current = setTimeout(() => {
       autoSaveProject(updatedVideoLayers, audioLayers);
     }, 1000);
+
     saveHistory();
   } catch (error) {
     console.error('Error updating filters:', error);
+    alert('Failed to apply filters. Please try again.');
   }
 };
 
@@ -3342,19 +3447,166 @@ const handleRemoveFilter = async (filterName) => {
 };
 
 const updateFilterSetting = (filterName, filterValue) => {
-  setFilterParams((prev) => {
-    const newParams = {
-      ...prev,
-      [filterName]: filterValue,
-    };
-    if (filterUpdateTimeoutRef.current) {
-      clearTimeout(filterUpdateTimeoutRef.current);
+  if (!selectedSegment || !projectId) return;
+
+  // Update filterParams for the UI
+  setFilterParams((prev) => ({
+    ...prev,
+    [filterName]: filterValue,
+  }));
+
+  // Debounce the filter update
+  if (filterUpdateTimeoutRef.current) {
+    clearTimeout(filterUpdateTimeoutRef.current);
+  }
+  filterUpdateTimeoutRef.current = setTimeout(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      console.log('Auth token:', token); // Debug log
+      if (!token) {
+        console.error('No token found for API request');
+        alert('Authentication token missing. Please log in again.');
+        navigate('/login');
+        return;
+      }
+
+      const segmentId = selectedSegment.id;
+      console.log('Applying filter:', { filterName, filterValue, segmentId }); // Debug log
+
+      // Use existing sessionId if available; otherwise, start a new session
+      let currentSessionId = sessionId;
+      if (!currentSessionId) {
+        console.log('No sessionId found, starting new editing session');
+        const sessionResponse = await fetch(`http://localhost:8080/projects/${projectId}/session`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!sessionResponse.ok) {
+          const errorText = await sessionResponse.text();
+          throw new Error(`Failed to start editing session: ${sessionResponse.status} ${errorText}`);
+        }
+        currentSessionId = await sessionResponse.text();
+        console.log('New Session ID:', currentSessionId); // Debug log
+        setSessionId(currentSessionId); // Update sessionId state
+      } else {
+        console.log('Using existing Session ID:', currentSessionId); // Debug log
+      }
+
+      // Update local videoLayers state
+      let filterId = null;
+      setVideoLayers((prevLayers) =>
+        prevLayers.map((layer, layerIndex) =>
+          layer.map((segment) => {
+            if (
+              segment.id === selectedSegment.id &&
+              segment.layer === selectedSegment.layer &&
+              layerIndex === selectedSegment.layer
+            ) {
+              const currentFilters = Array.isArray(segment.filters) ? segment.filters : [];
+              let newFilters;
+
+              if (filterValue === '' || filterValue === null || filterValue === undefined) {
+                newFilters = currentFilters.filter((f) => f.filterName !== filterName);
+              } else {
+                const existingFilter = currentFilters.find((f) => f.filterName === filterName);
+                filterId = existingFilter ? existingFilter.filterId : crypto.randomUUID(); // Generate filterId if new
+                newFilters = [
+                  ...currentFilters.filter((f) => f.filterName !== filterName),
+                  { filterId, filterName, filterValue: filterValue.toString(), segmentId },
+                ];
+              }
+
+              return {
+                ...segment,
+                filters: newFilters,
+              };
+            }
+            return segment;
+          })
+        )
+      );
+
+      // Update selectedSegment.filters to keep UI in sync
+      setSelectedSegment((prev) => {
+        const currentFilters = Array.isArray(prev.filters) ? prev.filters : [];
+        let newFilters;
+        if (filterValue === '' || filterValue === null || filterValue === undefined) {
+          newFilters = currentFilters.filter((f) => f.filterName !== filterName);
+        } else {
+          newFilters = [
+            ...currentFilters.filter((f) => f.filterName !== filterName),
+            { filterId: filterId || crypto.randomUUID(), filterName, filterValue: filterValue.toString(), segmentId },
+          ];
+        }
+        return { ...prev, filters: newFilters };
+      });
+
+      // Save to backend
+      if (filterValue === '' || filterValue === null || filterValue === undefined) {
+        console.log('Removing filter:', { filterName, segmentId }); // Debug log
+        const response = await fetch(
+          `http://localhost:8080/projects/${projectId}/remove-filter?sessionId=${currentSessionId}&segmentId=${segmentId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        const responseText = await response.text();
+        console.log('Remove filter response:', responseText || 'Empty response'); // Debug log
+        if (!response.ok) {
+          throw new Error(`Failed to remove filter ${filterName}: ${response.status} ${responseText}`);
+        }
+        console.log(`Filter ${filterName} removed for segment ${segmentId}`);
+      } else {
+        const requestBody = {
+          filterId: filterId || crypto.randomUUID(), // Ensure filterId is included
+          segmentId,
+          filterName,
+          filterValue: filterValue.toString(),
+        };
+        console.log('Sending filter request:', requestBody); // Debug log
+        const response = await fetch(
+          `http://localhost:8080/projects/${projectId}/apply-filter?sessionId=${currentSessionId}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          }
+        );
+        const responseText = await response.text();
+        console.log('Apply filter response:', responseText || 'Empty response'); // Debug log
+        if (!response.ok) {
+          throw new Error(`Failed to apply filter ${filterName}: ${response.status} ${responseText}`);
+        }
+        // Handle empty response (backend returns 200 OK with no body)
+        let responseData = {};
+        if (responseText) {
+          try {
+            responseData = JSON.parse(responseText);
+          } catch (e) {
+            console.warn('Response is not JSON, treating as empty:', responseText);
+          }
+        }
+        console.log(`Filter ${filterName} applied for segment ${segmentId} with value ${filterValue}`, responseData); // Debug log
+      }
+
+      // Trigger auto-save to persist state
+      await autoSaveProject(videoLayers, audioLayers);
+      console.log('Auto-save triggered after filter update');
+    } catch (error) {
+      console.error('Error saving filter to backend:', error);
+      alert(`Failed to save filter changes: ${error.message}`);
     }
-    filterUpdateTimeoutRef.current = setTimeout(() => {
-      updateFilters({ [filterName]: filterValue });
-    }, 500);
-    return newParams;
-  });
+  }, 500);
 };
 
 useEffect(() => {
@@ -3415,6 +3667,11 @@ const resetFilters = async () => {
     alert('Failed to reset filters. Please try again.');
   }
 };
+
+// Add this before the return statement
+const filteredElements = elements.filter((element) =>
+  element.displayName.toLowerCase().includes(elementSearchQuery.toLowerCase())
+);
 
 return (
   <div className="project-editor">
@@ -3569,21 +3826,28 @@ return (
             {expandedSection === 'elements' && (
               <div className="section-content">
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleElementUpload}
-                  id="upload-element"
-                  className="hidden-input"
-                  multiple
+                  type="text"
+                  placeholder="Search elements..."
+                  value={elementSearchQuery}
+                  onChange={(e) => setElementSearchQuery(e.target.value)}
+                  className="search-input"
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    marginBottom: '10px',
+                    borderRadius: '4px',
+                    border: '1px solid #ccc',
+                    boxSizing: 'border-box',
+                    fontSize: '14px',
+                  }}
                 />
-                <label htmlFor="upload-element" className="upload-button">
-                  {uploading ? 'Uploading...' : 'Upload Element'}
-                </label>
-                {elements.length === 0 ? (
-                  <div className="empty-state">Pour it in, I am waiting!</div>
+                {filteredElements.length === 0 ? (
+                  <div className="empty-state">
+                    {elementSearchQuery ? 'No elements match your search.' : 'No elements available!'}
+                  </div>
                 ) : (
                   <div className="element-list">
-                    {elements.map((element) => (
+                    {filteredElements.map((element) => (
                       <div
                         key={element.id}
                         className="element-item"
@@ -3621,13 +3885,15 @@ return (
                           backgroundColor: style.backgroundColor,
                           color: style.fontColor,
                           fontFamily: style.fontFamily,
-                          padding: `${style.backgroundPadding}px`,
+                          padding: `${Math.max(style.backgroundH / 2, style.backgroundW / 2)}px`,
                           borderRadius: `${style.backgroundBorderRadius}px`,
                           border: `${style.backgroundBorderWidth}px solid ${style.backgroundBorderColor}`,
                           opacity: style.backgroundOpacity,
                           textAlign: style.alignment,
                           margin: '10px 0',
                           cursor: 'pointer',
+                          WebkitTextStroke: style.textBorderWidth > 0 ? `${style.textBorderWidth}px ${style.textBorderColor}` : 'none', // Added
+                          WebkitTextStrokeOpacity: style.textBorderOpacity || 1.0, // Added (Note: CSS does not support stroke opacity directly)
                         }}
                       >
                         {style.text}
@@ -3715,6 +3981,7 @@ return (
               canUndo={canUndo}
               canRedo={canRedo}
               currentTime={currentTime}
+              preloadMedia={preloadMedia} // Add this line
             />
           ) : (
             <div className="loading-message">Loading timeline...</div>
@@ -3905,11 +4172,22 @@ return (
                 />
               </div>
               <div className="control-group">
-                <label>Background Padding</label>
+                <label>Background Height</label>
                 <input
                   type="number"
-                  value={textSettings.backgroundPadding}
-                  onChange={(e) => updateTextSettings({ ...textSettings, backgroundPadding: parseInt(e.target.value) || 0 })}
+                  value={textSettings.backgroundH}
+                  onChange={(e) => updateTextSettings({ ...textSettings, backgroundH: parseInt(e.target.value)})}
+                  min="0"
+                  step="1"
+                  style={{ width: '60px' }}
+                />
+              </div>
+              <div className="control-group">
+                <label>Background Width</label>
+                <input
+                  type="number"
+                  value={textSettings.backgroundW}
+                  onChange={(e) => updateTextSettings({ ...textSettings, backgroundW: parseInt(e.target.value)})}
                   min="0"
                   step="1"
                   style={{ width: '60px' }}
@@ -3925,6 +4203,52 @@ return (
                   step="1"
                   style={{ width: '60px' }}
                 />
+              </div>
+              <div className="control-group">
+                <label>Text Border Color</label>
+                <input
+                  type="color"
+                  value={textSettings.textBorderColor === 'transparent' ? '#000000' : textSettings.textBorderColor}
+                  onChange={(e) =>
+                    updateTextSettings({
+                      ...textSettings,
+                      textBorderColor: e.target.value === '#000000' ? 'transparent' : e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="control-group">
+                <label>Text Border Width</label>
+                <input
+                  type="number"
+                  value={textSettings.textBorderWidth}
+                  onChange={(e) => updateTextSettings({ ...textSettings, textBorderWidth: parseInt(e.target.value) || 0 })}
+                  min="0"
+                  step="1"
+                  style={{ width: '60px' }}
+                />
+              </div>
+              <div className="control-group">
+                <label>Text Border Opacity</label>
+                <div className="slider-container">
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={textSettings.textBorderOpacity}
+                    onChange={(e) => updateTextSettings({ ...textSettings, textBorderOpacity: parseFloat(e.target.value) })}
+                  />
+                  <input
+                    type="number"
+                    value={textSettings.textBorderOpacity}
+                    onChange={(e) => updateTextSettings({ ...textSettings, textBorderOpacity: parseFloat(e.target.value) || 1.0 })}
+                    step="0.01"
+                    min="0"
+                    max="1"
+                    style={{ width: '60px', marginLeft: '10px' }}
+                  />
+                </div>
               </div>
               <div className="control-group">
                 <label>Alignment</label>

@@ -7,6 +7,12 @@ const FilterControls = ({
   updateFilterSetting,
   resetFilters
 }) => {
+
+  const handleFilterChange = (filterName, value) => {
+      console.log(`Updating filter ${filterName} to ${value}`); // Debug log
+      updateFilterSetting(filterName, value);
+    };
+
   return (
     <div className="filters-panel" style={{ maxHeight: '400px', overflowY: 'auto' }}>
       <h3>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate, useLocation } from 'react-router-dom';
 import '../CSS/Dashboard.css';
-import { FaTrash } from 'react-icons/fa';
+import { FaTrash, FaUser, FaCog, FaSignOutAlt } from 'react-icons/fa';
 
 const API_BASE_URL = 'http://localhost:8080';
 
@@ -15,9 +15,11 @@ const Dashboard = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [userProfile, setUserProfile] = useState({
+    email: '',
     firstName: '',
     lastName: '',
     picture: null,
+    googleAuth: false
   });
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,14 +43,21 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       console.log('User profile response:', response.data);
+
       const fullName = response.data.name || '';
       const nameParts = fullName.trim().split(' ');
       const firstName = nameParts[0] || '';
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+      // Add this debug statement
+      console.log('Profile picture URL:', response.data.picture);
+
       setUserProfile({
+        email: response.data.email || '',
         firstName: firstName,
         lastName: lastName,
         picture: response.data.picture || null,
+        googleAuth: response.data.googleAuth || false
       });
     } catch (error) {
       console.error('Error fetching user profile:', error);
@@ -61,9 +70,35 @@ const Dashboard = () => {
         localStorage.removeItem('token'); // Clear invalid token
         navigate('/', { state: { error: 'Session expired. Please log in again.' } });
       } else {
-        setUserProfile({ firstName: '', lastName: '', picture: null });
+        setUserProfile({ firstName: '', lastName: '', picture: null, googleAuth: false });
       }
     }
+  };
+
+   // Add a function to preload the profile image and check if it loads successfully
+   const preloadProfileImage = (url) => {
+    // Don't attempt to load if URL is null or empty
+    if (!url) return;
+
+    const img = new Image();
+    img.onload = () => {
+      setUserProfile(prev => ({
+        ...prev,
+        profileImageLoaded: true
+      }));
+    };
+    img.onerror = () => {
+      console.error('Failed to load profile image:', url);
+      setUserProfile(prev => ({
+        ...prev,
+        profileImageLoaded: false
+      }));
+    };
+
+    // Add a cache-busting parameter to try to avoid hitting rate limits
+    // and add a timestamp to prevent caching issues
+    const cacheBuster = `?cb=${Date.now()}`;
+    img.src = url + cacheBuster;
   };
 
   const fetchProjects = async () => {
@@ -323,6 +358,25 @@ const Dashboard = () => {
     setFps(presetFps);
   };
 
+  const navigateToProfile = () => {
+    // Navigate to profile page (you'll need to implement this)
+    navigate('/profile');
+    setIsProfileDropdownOpen(false);
+  };
+
+  const navigateToSettings = () => {
+    // Navigate to settings page (you'll need to implement this)
+    navigate('/settings');
+    setIsProfileDropdownOpen(false);
+  };
+
+  // Add this function to handle image loading errors
+  const handleImageError = (e) => {
+    console.error('Failed to load profile image');
+    e.target.style.display = 'none';
+    e.target.nextSibling.style.display = 'flex';
+  };
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -406,7 +460,20 @@ const Dashboard = () => {
           <div className="profile-section">
             <div className="profile-icon" onClick={toggleProfileDropdown}>
               {userProfile.picture ? (
-                <img src={userProfile.picture} alt="Profile" className="profile-picture" />
+                <>
+                  <img
+                    src={userProfile.picture}
+                    alt="Profile"
+                    className="profile-picture"
+                    onError={handleImageError}
+                    crossOrigin="anonymous"
+                  />
+                  <div className="default-profile-icon" style={{ display: 'none' }}>
+                    {userProfile.firstName && userProfile.firstName.length > 0
+                      ? userProfile.firstName.charAt(0).toUpperCase()
+                      : 'U'}
+                  </div>
+                </>
               ) : (
                 <div className="default-profile-icon">
                   {userProfile.firstName && userProfile.firstName.length > 0
@@ -417,13 +484,44 @@ const Dashboard = () => {
             </div>
             {isProfileDropdownOpen && (
               <div className="profile-dropdown">
-                <div className="profile-name">
-                  {(userProfile.firstName || userProfile.lastName)
-                    ? `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim()
-                    : 'Unknown User'}
+                <div className="profile-header">
+                  <div className="profile-avatar">
+                    {userProfile.picture ? (
+                      <>
+                        <img
+                          src={userProfile.picture}
+                          alt="Profile"
+                          className="dropdown-profile-picture"
+                          onError={handleImageError}
+                          crossOrigin="anonymous"
+                        />
+                        <div className="dropdown-default-avatar" style={{ display: 'none' }}>
+                          {userProfile.firstName && userProfile.firstName.length > 0
+                            ? userProfile.firstName.charAt(0).toUpperCase()
+                            : 'U'}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="dropdown-default-avatar">
+                        {userProfile.firstName && userProfile.firstName.length > 0
+                          ? userProfile.firstName.charAt(0).toUpperCase()
+                          : 'U'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="profile-info">
+                    <div className="profile-name">
+                      {(userProfile.firstName || userProfile.lastName)
+                        ? `${userProfile.firstName || ''} ${userProfile.lastName || ''}`.trim()
+                        : 'Unknown User'}
+                    </div>
+                    <div className="profile-email">{userProfile.email}</div>
+                    {userProfile.googleAuth && <div className="profile-google-badge">Google</div>}
+                  </div>
                 </div>
-                <div className="profile-dropdown-item" onClick={handleLogout}>
-                  Logout
+                <div className="profile-divider"></div>
+                <div className="profile-dropdown-item logout-item" onClick={handleLogout}>
+                  <FaSignOutAlt className="dropdown-icon" /> Logout
                 </div>
               </div>
             )}

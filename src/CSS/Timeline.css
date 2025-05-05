@@ -134,21 +134,29 @@
   height: 30px;
   top: 5px;
   border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   cursor: move;
   display: flex;
   align-items: center;
   justify-content: center;
   user-select: none;
   overflow: visible;
-  background-size: cover;
+  background-size: cover; /* Ensure thumbnail fills the container */
   background-position: center;
   box-sizing: border-box;
   padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.5); /* Thin, semi-transparent white border */
 }
 
+/* Ensure consistent border for specific segment types */
+.timeline-item.video-segment,
+.timeline-item.image-segment,
+.timeline-item.audio-segment {
+  border: 1px solid rgba(255, 255, 255, 0.5); /* Consistent thin border for segments with thumbnails */
+}
+
+/* Remove the box-shadow to eliminate the black shadow effect */
 .timeline-item:hover {
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.7); /* Slightly brighter border on hover */
 }
 
 .timeline-item.selected {
@@ -193,10 +201,6 @@
   background-color: #ff9800;
 }
 
-.timeline-item.video-segment {
-  border: none;
-}
-
 .timeline-item.text-segment {
   background-color: transparent;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -237,21 +241,22 @@
   font-size: 12px;
   color: white;
   background-color: rgba(0, 0, 0, 0.5);
-  padding: 3px;
+  padding: 4px 4px; /* Added small vertical padding */
   width: 100%;
-  text-align: center;
+  height: 100%;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   box-sizing: border-box;
   position: absolute;
-  top: 0;
+  bottom: 0;
   left: 0;
-  height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  align-items: flex-end;
   pointer-events: none;
+  z-index: 1;
 }
 
 .timeline-item .resize-handle.resize-right {

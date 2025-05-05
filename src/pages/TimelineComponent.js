@@ -46,6 +46,7 @@ const TimelineComponent = ({
   canUndo,
   canRedo,
   currentTime, // Added prop to receive currentTime from ProjectEditor
+  preloadMedia, // Add preloadMedia prop
 }) => {
   // Removed local playhead and currentTime states
   const [timelineVideos, setTimelineVideos] = useState([]);
@@ -326,8 +327,12 @@ const TimelineComponent = ({
                 backgroundOpacity: textSegment.backgroundOpacity ?? 1.0,
                 backgroundBorderWidth: textSegment.backgroundBorderWidth ?? 0,
                 backgroundBorderColor: textSegment.backgroundBorderColor || '#000000',
-                backgroundPadding: textSegment.backgroundPadding ?? 0,
+                backgroundH: textSegment.backgroundH ?? 0,
+                backgroundW: textSegment.backgroundW ?? 0,
                 backgroundBorderRadius: textSegment.backgroundBorderRadius ?? 0,
+                textBorderColor: textSegment.textBorderColor || 'transparent', // Added
+                textBorderWidth: textSegment.textBorderWidth ?? 0, // Added
+                textBorderOpacity: textSegment.textBorderOpacity ?? 1.0, // Added
                 keyframes: textSegment.keyframes || {},
                 opacity: textSegment.opacity || 1,
               });
@@ -342,6 +347,10 @@ const TimelineComponent = ({
               while (newAudioLayers.length <= layerIndex) newAudioLayers.push([]);
               const filename = audioSegment.audioFileName || audioSegment.audioPath.split('/').pop();
               const audioUrl = `${API_BASE_URL}/projects/${projectId}/audio/${encodeURIComponent(filename)}`;
+              // Construct waveform URL if waveformPath exists, else use default
+              const waveformImage = audioSegment.waveformPath
+                ? `${API_BASE_URL}/projects/${projectId}/waveforms/${encodeURIComponent(audioSegment.waveformPath.split('/').pop())}`
+                : '/images/audio.jpeg';
               console.log(`Audio segment ID ${audioSegment.id}: no filters applied`);
               const newSegment = {
                 id: audioSegment.id,
@@ -356,11 +365,12 @@ const TimelineComponent = ({
                 startTimeWithinAudio: audioSegment.startTime || 0,
                 endTimeWithinAudio: audioSegment.endTime || (audioSegment.timelineEndTime - audioSegment.timelineStartTime) || 0,
                 displayName: filename,
-                waveformImage: '/images/audio.jpeg',
+                waveformImage: waveformImage,
                 volume: audioSegment.volume || 1.0,
                 keyframes: audioSegment.keyframes || {},
+                isExtracted: audioSegment.isExtracted || false, // Include isExtracted from backend
               };
-              console.log(`Created audio segment, ${audioSegment.id} with URL: ${audioUrl}`, newSegment);
+              console.log(`Created audio segment, ${audioSegment.id} with URL: ${audioUrl}, waveform: ${waveformImage}`, newSegment);
               newAudioLayers[layerIndex].push(newSegment);
             }
           } else {
@@ -466,7 +476,9 @@ const TimelineComponent = ({
     loadProjectTimeline,
     API_BASE_URL,
     timelineRef,
-    roundToThreeDecimals
+    roundToThreeDecimals,
+    setTotalDuration, // Pass setTotalDuration from props
+    preloadMedia, // Pass preloadMedia from ProjectEditor
   });
 
   const generalHandler = GeneralSegmentHandler({
@@ -643,7 +655,25 @@ const TimelineComponent = ({
         dragOffset,
         snapIndicators
       );
-      if (audioDropResult === undefined) {
+      if (audioDropResult && audioDropResult.newSegment) {
+        // Update waveformImage and isExtracted based on backend response
+        const waveformImage = audioDropResult.response.waveformPath
+          ? `${API_BASE_URL}/projects/${projectId}/waveforms/${encodeURIComponent(audioDropResult.response.waveformPath.split('/').pop())}`
+          : '/images/audio.jpeg';
+        setAudioLayers((prevLayers) => {
+          const newLayers = [...prevLayers];
+          const layerIndex = Math.abs(audioDropResult.newSegment.layer) - 1;
+          newLayers[layerIndex] = newLayers[layerIndex].map((segment) =>
+            segment.id === audioDropResult.newSegment.id
+              ? {
+                  ...segment,
+                  waveformImage,
+                  isExtracted: audioDropResult.response.isExtracted || false, // Include isExtracted from backend
+                }
+              : segment
+          );
+          return newLayers;
+        });
         setDraggingItem(null);
         setDragLayer(null);
         setDragOffset(0);
@@ -651,6 +681,11 @@ const TimelineComponent = ({
         saveHistory();
         return;
       }
+      setDraggingItem(null);
+      setDragLayer(null);
+      setDragOffset(0);
+      setSnapIndicators([]);
+      saveHistory();
     }
 
     if (dragData?.type === 'media' || (draggingItem && draggingItem.type === 'video')) {
@@ -742,14 +777,18 @@ const TimelineComponent = ({
             backgroundOpacity: style.backgroundOpacity ?? 1.0,
             backgroundBorderWidth: style.backgroundBorderWidth ?? 0,
             backgroundBorderColor: style.backgroundBorderColor || '#000000',
-            backgroundPadding: style.backgroundPadding ?? 0,
+            backgroundH: style.backgroundH ?? 0,
+            backgroundW: style.backgroundW ?? 0,
             backgroundBorderRadius: style.backgroundBorderRadius ?? 0,
+            textBorderColor: style.textBorderColor || 'transparent', // Added
+            textBorderWidth: style.textBorderWidth ?? 0, // Added
+            textBorderOpacity: style.textBorderOpacity ?? 1.0, // Added
           },
           { params: { sessionId }, headers: { Authorization: `Bearer ${token}` } }
         );
         const newTextSegment = response.data;
         const newSegment = {
-          id: newTextSegment.id,
+          id: newTextSegment.textSegmentId,
           type: 'text',
           text: style.text,
           startTime: roundToThreeDecimals(timelinePosition),
@@ -765,8 +804,12 @@ const TimelineComponent = ({
           backgroundOpacity: style.backgroundOpacity ?? 1.0,
           backgroundBorderWidth: style.backgroundBorderWidth ?? 0,
           backgroundBorderColor: style.backgroundBorderColor || '#000000',
-          backgroundPadding: style.backgroundPadding ?? 0,
+          backgroundH: style.backgroundH ?? 0,
+          backgroundW: style.backgroundW ?? 0,
           backgroundBorderRadius: style.backgroundBorderRadius ?? 0,
+          textBorderColor: style.textBorderColor || 'transparent', // Added
+          textBorderWidth: style.textBorderWidth ?? 0, // Added
+          textBorderOpacity: style.textBorderOpacity ?? 1.0, // Added
           keyframes: {},
         };
 
@@ -834,14 +877,32 @@ const TimelineComponent = ({
 
     console.log('handleTimelineClick: isSplitMode=', isSplitMode, 'clickTime=', clickTime, 'reversedIndex=', reversedIndex, 'totalVideoLayers=', totalVideoLayers, 'totalAudioLayers=', totalAudioLayers, 'clickX=', clickX, 'timeScale=', timeScale);
 
-    if (reversedIndex <= totalVideoLayers) {
-      clickedLayerIndex = totalVideoLayers - reversedIndex;
-    } else if (reversedIndex >= totalVideoLayers + 1 && reversedIndex < totalLayers - 1) {
-      clickedLayerIndex = totalLayers - 2 - reversedIndex;
+    // Calculate the actual audio layer index that was clicked
+    // Audio layers start after video layers + 1 (for spacing)
+    if (reversedIndex > totalVideoLayers && reversedIndex < totalLayers - 1) {
+      // This is an audio layer
       isAudioLayer = true;
+
+      // Calculate which audio layer was clicked (0-based index)
+      // audioLayerIndex = reversedIndex - (totalVideoLayers + 1)
+      const audioLayerIndex = reversedIndex - (totalVideoLayers + 1);
+
+      console.log('Audio layer clicked: audioLayerIndex=', audioLayerIndex);
+
+      // Make sure we're within valid range
+      if (audioLayerIndex >= 0 && audioLayerIndex < audioLayers.length) {
+        clickedLayerIndex = audioLayerIndex;
+      } else {
+        clickedLayerIndex = -1;
+      }
+    } else if (reversedIndex <= totalVideoLayers) {
+      // This is a video layer
+      clickedLayerIndex = totalVideoLayers - reversedIndex;
     } else {
       clickedLayerIndex = -1;
     }
+
+    console.log('clickedLayerIndex (corrected)=', clickedLayerIndex, 'isAudioLayer=', isAudioLayer);
 
     if (!isSplitMode) {
       onTimeUpdate(clickTime); // Update time in ProjectEditor
@@ -851,14 +912,13 @@ const TimelineComponent = ({
     }
 
     let foundItem = null;
-    let adjustedLayerIndex = isAudioLayer ? clickedLayerIndex : clickedLayerIndex >= 0 ? clickedLayerIndex : 0;
     const targetLayers = isAudioLayer ? audioLayers : videoLayers;
 
-    console.log('targetLayers=', isAudioLayer ? 'audio' : 'video', 'adjustedLayerIndex=', adjustedLayerIndex);
+    // Only proceed if we have a valid layer index
+    if (isAudioLayer && clickedLayerIndex >= 0 && clickedLayerIndex < audioLayers.length) {
+      const layerItems = audioLayers[clickedLayerIndex];
 
-    if (adjustedLayerIndex >= 0 && adjustedLayerIndex < targetLayers.length) {
-      const layerItems = targetLayers[adjustedLayerIndex];
-      console.log('layerItems=', layerItems.map(item => ({
+      console.log('Checking audio layer', clickedLayerIndex, 'items=', layerItems.map(item => ({
         id: item.id,
         type: item.type,
         startTime: item.startTime,
@@ -867,57 +927,104 @@ const TimelineComponent = ({
         fileName: item.fileName
       })));
 
+      // Look for a segment at this click time in this specific layer
       foundItem = layerItems.find((item) => {
         const itemStart = item.startTime;
         const itemEnd = itemStart + item.duration;
         const tolerance = 0.05;
         return clickTime >= itemStart - tolerance && clickTime <= itemEnd + tolerance;
       });
+
+      console.log('foundItem in audio layer', clickedLayerIndex, '=', foundItem ? foundItem.id : 'none');
+    } else if (!isAudioLayer && clickedLayerIndex >= 0 && clickedLayerIndex < videoLayers.length) {
+      const layerItems = videoLayers[clickedLayerIndex];
+
+      console.log('Checking video layer', clickedLayerIndex, 'items=', layerItems.map(item => ({
+        id: item.id,
+        type: item.type,
+        startTime: item.startTime,
+        duration: item.duration,
+        endTime: item.startTime + item.duration,
+        fileName: item.fileName
+      })));
+
+      // Look for a segment at this click time in this specific layer
+      foundItem = layerItems.find((item) => {
+        const itemStart = item.startTime;
+        const itemEnd = itemStart + item.duration;
+        const tolerance = 0.05;
+        return clickTime >= itemStart - tolerance && clickTime <= itemEnd + tolerance;
+      });
+
+      console.log('foundItem in video layer', clickedLayerIndex, '=', foundItem ? foundItem.id : 'none');
     }
 
-    if (!foundItem && isAudioLayer) {
-      console.log('No segment in layer', adjustedLayerIndex, ', searching all audio layers');
-      for (let i = 0; i < audioLayers.length; i++) {
-        const layerItems = audioLayers[i];
-        foundItem = layerItems.find((item) => {
-          const itemStart = item.startTime;
-          const itemEnd = itemStart + item.duration;
-          const tolerance = 0.05;
-          return clickTime >= itemStart - tolerance && clickTime <= itemEnd + tolerance;
-        });
-        if (foundItem) {
-          adjustedLayerIndex = i;
-          console.log('Found segment in audioLayers[', i, ']');
-          break;
+    // IMPORTANT: In split mode, we only process the exact item that was clicked
+    // We don't try to search other layers
+    if (!foundItem && !isSplitMode) {
+      // Only search other layers if NOT in split mode
+      if (isAudioLayer) {
+        console.log('No segment in audio layer', clickedLayerIndex, ', searching all audio layers');
+        for (let i = 0; i < audioLayers.length; i++) {
+          if (i === clickedLayerIndex) continue; // Skip the layer we already checked
+
+          const layerItems = audioLayers[i];
+          const found = layerItems.find((item) => {
+            const itemStart = item.startTime;
+            const itemEnd = itemStart + item.duration;
+            const tolerance = 0.05;
+            return clickTime >= itemStart - tolerance && clickTime <= itemEnd + tolerance;
+          });
+
+          if (found) {
+            foundItem = found;
+            clickedLayerIndex = i;
+            console.log('Found segment in audioLayers[', i, ']:', found.id);
+            break;
+          }
+        }
+      } else {
+        console.log('No segment in video layer', clickedLayerIndex, ', searching all video layers');
+        for (let i = 0; i < videoLayers.length; i++) {
+          if (i === clickedLayerIndex) continue; // Skip the layer we already checked
+
+          const layerItems = videoLayers[i];
+          const found = layerItems.find((item) => {
+            const itemStart = item.startTime;
+            const itemEnd = itemStart + item.duration;
+            const tolerance = 0.05;
+            return clickTime >= itemStart - tolerance && clickTime <= itemEnd + tolerance;
+          });
+
+          if (found) {
+            foundItem = found;
+            clickedLayerIndex = i;
+            console.log('Found segment in videoLayers[', i, ']:', found.id);
+            break;
+          }
         }
       }
     }
 
     if (foundItem) {
-      console.log('foundItem=', foundItem.type, 'id=', foundItem.id, 'fileName=', foundItem.fileName, 'startTime=', foundItem.startTime, 'duration=', foundItem.duration, 'layerIndex=', adjustedLayerIndex);
+      console.log('Final foundItem=', foundItem.type, 'id=', foundItem.id, 'fileName=', foundItem.fileName, 'startTime=', foundItem.startTime, 'duration=', foundItem.duration, 'layerIndex=', clickedLayerIndex);
+
       if (isSplitMode) {
         if (foundItem.type === 'video') {
           console.log('Splitting video:', foundItem.id);
-          await videoHandler.handleVideoSplit(foundItem, clickTime, adjustedLayerIndex);
+          await videoHandler.handleVideoSplit(foundItem, clickTime, clickedLayerIndex);
           saveHistory();
         } else if (foundItem.type === 'audio') {
-          const isExtracted = foundItem.fileName.includes('extracted_') || foundItem.fileName.includes('extracted/');
-          console.log('Audio split: isExtracted=', isExtracted, 'fileName=', foundItem.fileName);
-          if (isExtracted) {
-            console.log('Calling handleExtractedAudioSplit for:', foundItem.id);
-            await audioHandler.handleExtractedAudioSplit(foundItem, clickTime, adjustedLayerIndex);
-            saveHistory();
-          } else {
-            console.log('Calling handleAudioSplit for:', foundItem.id);
-            await audioHandler.handleAudioSplit(foundItem, clickTime, adjustedLayerIndex);
-          }
+          console.log('Splitting audio:', foundItem.id, 'isExtracted=', foundItem.isExtracted);
+          await audioHandler.handleAudioSplit(foundItem, clickTime, clickedLayerIndex);
+          saveHistory();
         } else if (foundItem.type === 'text') {
           console.log('Splitting text:', foundItem.id);
-          await textHandler.handleTextSplit(foundItem, clickTime, adjustedLayerIndex);
+          await textHandler.handleTextSplit(foundItem, clickTime, clickedLayerIndex);
           saveHistory();
         } else if (foundItem.type === 'image') {
           console.log('Splitting image:', foundItem.id);
-          await imageHandler.handleImageSplit(foundItem, clickTime, adjustedLayerIndex);
+          await imageHandler.handleImageSplit(foundItem, clickTime, clickedLayerIndex);
           saveHistory();
         }
         setIsSplitMode(false);
@@ -935,30 +1042,6 @@ const TimelineComponent = ({
       }
     } else {
       console.log('No item found at clickTime=', clickTime);
-      console.log('All audioLayers=', audioLayers.map((layer, index) => ({
-        layerIndex: index,
-        items: layer.map(item => ({
-          id: item.id,
-          type: item.type,
-          startTime: item.startTime,
-          duration: item.duration,
-          endTime: item.startTime + item.duration,
-          fileName: item.fileName
-        }))
-      })));
-      if (!isAudioLayer) {
-        console.log('All videoLayers=', videoLayers.map((layer, index) => ({
-          layerIndex: index,
-          items: layer.map(item => ({
-            id: item.id,
-            type: item.type,
-            startTime: item.startTime,
-            duration: item.duration,
-            endTime: item.startTime + item.duration,
-            fileName: item.fileName
-          }))
-        })));
-      }
     }
 
     if (!isSplitMode && onVideoSelect) onVideoSelect(clickTime);
@@ -1029,8 +1112,12 @@ const TimelineComponent = ({
               backgroundOpacity: item.backgroundOpacity,
               backgroundBorderWidth: item.backgroundBorderWidth,
               backgroundBorderColor: item.backgroundBorderColor,
-              backgroundPadding: item.backgroundPadding,
+              backgroundH: item.backgroundH, // Replace backgroundPadding
+              backgroundW: item.backgroundW, // Replace backgroundPadding
               backgroundBorderRadius: item.backgroundBorderRadius,
+              textBorderColor: item.textBorderColor, // Added
+              textBorderWidth: item.textBorderWidth, // Added
+              textBorderOpacity: item.textBorderOpacity, // Added
               keyframes: item.keyframes || {},
               opacity: item.opacity,
             });

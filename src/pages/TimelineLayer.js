@@ -115,13 +115,11 @@ const TimelineLayer = ({
                   </div>
                 </div>
               )}
-              {(item.type === 'video' || item.type === 'image' || item.type === 'audio') && (
+              {(item.type === 'video' || item.type === 'image') && (
                 <div className="video-title">
                   {item.type === 'video'
                     ? item.title || item.displayPath || item.filePath || item.filename || 'Unnamed Video'
-                    : item.type === 'image'
-                    ? item.fileName || 'Unnamed Image'
-                    : item.displayName || 'Unnamed Audio'}
+                    : item.fileName || 'Unnamed Image'}
                 </div>
               )}
               {isSelected && (
